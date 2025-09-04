@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agora Webhooks Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f5f5f7;
+            color: #1d1d1f;
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 40px 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 12px;
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+        
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+        
+        .search-section {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        input[type="text"] {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e1e5e9;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s ease;
+        }
+        
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .results {
+            display: none;
+        }
+        
+        .channels-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .channel-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: transform 0.2s ease;
+            cursor: pointer;
+        }
+        
+        .channel-card:hover {
+            transform: translateY(-4px);
+        }
+        
+        .channel-name {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #333;
+        }
+        
+        .channel-stats {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        
+        .stat {
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #667eea;
+        }
+        
+        .stat-label {
+            font-size: 0.9rem;
+            color: #666;
+        }
+        
+        .channel-details {
+            display: none;
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-top: 20px;
+        }
+        
+        .sessions-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        .sessions-table th,
+        .sessions-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e1e5e9;
+        }
+        
+        .sessions-table th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .sessions-table tr:hover {
+            background-color: #f8f9fa;
+        }
+        
+        .error {
+            background: #fee;
+            color: #c33;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid #c33;
+        }
+        
+        .back-btn {
+            background: #6c757d;
+            margin-bottom: 20px;
+        }
+        
+        .no-data {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Agora Webhooks Dashboard</h1>
+            <p>Monitor your Agora video calling usage and analytics</p>
+        </div>
+        
+        <div class="search-section">
+            <div class="form-group">
+                <label for="appId">App ID</label>
+                <input type="text" id="appId" placeholder="Enter your Agora App ID (e.g., 34f8sd9v)" />
+            </div>
+            <button class="btn" onclick="loadChannels()">Load Channels</button>
+        </div>
+        
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Loading data...</p>
+        </div>
+        
+        <div class="error" id="error" style="display: none;"></div>
+        
+        <div class="results" id="results">
+            <div id="channels-view">
+                <h2>Channels</h2>
+                <div class="channels-grid" id="channels-grid"></div>
+            </div>
+            
+            <div class="channel-details" id="channel-details">
+                <button class="btn back-btn" onclick="showChannelsView()">← Back to Channels</button>
+                <h2 id="channel-details-title"></h2>
+                <div id="channel-details-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentAppId = '';
+        
+        async function loadChannels() {
+            const appId = document.getElementById('appId').value.trim();
+            if (!appId) {
+                showError('Please enter an App ID');
+                return;
+            }
+            
+            currentAppId = appId;
+            showLoading();
+            hideError();
+            
+            try {
+                const response = await fetch(`/api/channels/${appId}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                displayChannels(data.channels);
+                
+            } catch (error) {
+                showError(`Failed to load channels: ${error.message}`);
+            } finally {
+                hideLoading();
+            }
+        }
+        
+        function displayChannels(channels) {
+            const grid = document.getElementById('channels-grid');
+            
+            if (channels.length === 0) {
+                grid.innerHTML = '<div class="no-data">No channels found for this App ID</div>';
+            } else {
+                grid.innerHTML = channels.map(channel => `
+                    <div class="channel-card" onclick="loadChannelDetails('${channel.channel_name}')">
+                        <div class="channel-name">${channel.channel_name}</div>
+                        <div class="channel-stats">
+                            <div class="stat">
+                                <div class="stat-value">${channel.total_minutes.toFixed(1)}</div>
+                                <div class="stat-label">Minutes</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-value">${channel.unique_users}</div>
+                                <div class="stat-label">Users</div>
+                            </div>
+                        </div>
+                        <div style="font-size: 0.9rem; color: #666; margin-top: 10px;">
+                            Last activity: ${new Date(channel.last_activity).toLocaleString()}
+                        </div>
+                    </div>
+                `).join('');
+            }
+            
+            showResults();
+        }
+        
+        async function loadChannelDetails(channelName) {
+            showLoading();
+            
+            try {
+                const response = await fetch(`/api/channel/${currentAppId}/${encodeURIComponent(channelName)}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                displayChannelDetails(data);
+                
+            } catch (error) {
+                showError(`Failed to load channel details: ${error.message}`);
+            } finally {
+                hideLoading();
+            }
+        }
+        
+        function displayChannelDetails(data) {
+            document.getElementById('channel-details-title').textContent = `Channel: ${data.channel_name}`;
+            
+            const content = document.getElementById('channel-details-content');
+            
+            if (data.sessions.length === 0) {
+                content.innerHTML = '<div class="no-data">No sessions found for this channel</div>';
+            } else {
+                content.innerHTML = `
+                    <div style="margin-bottom: 20px;">
+                        <div class="channel-stats">
+                            <div class="stat">
+                                <div class="stat-value">${data.total_minutes.toFixed(1)}</div>
+                                <div class="stat-label">Total Minutes</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-value">${data.unique_users}</div>
+                                <div class="stat-label">Unique Users</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-value">${data.sessions.length}</div>
+                                <div class="stat-label">Sessions</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <table class="sessions-table">
+                        <thead>
+                            <tr>
+                                <th>User ID</th>
+                                <th>Join Time</th>
+                                <th>Leave Time</th>
+                                <th>Duration</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${data.sessions.map(session => `
+                                <tr>
+                                    <td>${session.uid}</td>
+                                    <td>${new Date(session.join_time).toLocaleString()}</td>
+                                    <td>${session.leave_time ? new Date(session.leave_time).toLocaleString() : 'Active'}</td>
+                                    <td>${session.duration_minutes ? session.duration_minutes.toFixed(1) + ' min' : 'N/A'}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+            }
+            
+            showChannelDetails();
+        }
+        
+        function showChannelsView() {
+            document.getElementById('channels-view').style.display = 'block';
+            document.getElementById('channel-details').style.display = 'none';
+        }
+        
+        function showChannelDetails() {
+            document.getElementById('channels-view').style.display = 'none';
+            document.getElementById('channel-details').style.display = 'block';
+        }
+        
+        function showLoading() {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('results').style.display = 'none';
+        }
+        
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
+        
+        function showResults() {
+            document.getElementById('results').style.display = 'block';
+        }
+        
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+        
+        function hideError() {
+            document.getElementById('error').style.display = 'none';
+        }
+        
+        // Allow Enter key to trigger search
+        document.getElementById('appId').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                loadChannels();
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,213 @@
+import asyncio
+import json
+import logging
+from datetime import datetime
+from typing import Dict, Any
+from fastapi import FastAPI, Request, HTTPException, Depends, Form
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy.orm import Session
+from sqlalchemy import func, desc
+import uvicorn
+
+from config import Config
+from database import get_db, create_tables, ChannelSession, ChannelMetrics, UserMetrics
+from models import WebhookRequest, ChannelSessionResponse, ChannelMetricsResponse, UserMetricsResponse, ChannelListResponse, ChannelDetailResponse
+from webhook_processor import WebhookProcessor
+from security import WebhookSecurity
+
+# Configure logging
+logging.basicConfig(
+    level=getattr(logging, Config.LOG_LEVEL),
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(Config.LOG_FILE),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Create FastAPI app
+app = FastAPI(title="Agora Webhooks Server", version="1.0.0")
+
+# Templates for web interface
+templates = Jinja2Templates(directory="templates")
+
+# Initialize webhook processor
+webhook_processor = WebhookProcessor()
+
+# Webhook signature verification is now handled by WebhookSecurity class
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database tables on startup"""
+    create_tables()
+    logger.info("Database tables created/verified")
+
+@app.post("/{app_id}/webhooks")
+async def receive_webhook(app_id: str, request: Request):
+    """Receive webhook from Agora for specific App ID"""
+    try:
+        # Get raw body for signature verification
+        body = await request.body()
+        
+        # Verify signature if configured
+        signature = request.headers.get("Agora-Signature", "")
+        if not WebhookSecurity.verify_webhook_signature(body, signature):
+            logger.warning(f"Invalid webhook signature for app_id: {app_id}")
+            raise HTTPException(status_code=401, detail="Invalid signature")
+        
+        # Parse webhook data
+        try:
+            webhook_data = WebhookRequest.parse_raw(body)
+        except Exception as e:
+            logger.error(f"Failed to parse webhook data: {e}")
+            raise HTTPException(status_code=400, detail="Invalid webhook data")
+        
+        # Process webhook asynchronously
+        await webhook_processor.process_webhook(app_id, webhook_data, body.decode('utf-8'))
+        
+        logger.info(f"Webhook processed successfully for app_id: {app_id}, event_type: {webhook_data.eventType}")
+        return JSONResponse(content={"status": "success", "message": "Webhook processed"})
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing webhook for app_id {app_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/", response_class=HTMLResponse)
+async def web_interface(request: Request):
+    """Main web interface for querying data"""
+    return templates.TemplateResponse("index.html", {"request": request})
+
+@app.get("/api/channels/{app_id}")
+async def get_channels(app_id: str, db: Session = Depends(get_db)):
+    """Get list of channels for an App ID"""
+    try:
+        # Get channel metrics aggregated by channel
+        channel_metrics = db.query(
+            ChannelMetrics.channel_name,
+            func.sum(ChannelMetrics.total_minutes).label('total_minutes'),
+            func.max(ChannelMetrics.unique_users).label('unique_users'),
+            func.max(ChannelMetrics.updated_at).label('last_activity')
+        ).filter(
+            ChannelMetrics.app_id == app_id
+        ).group_by(ChannelMetrics.channel_name).order_by(desc('last_activity')).all()
+        
+        channels = []
+        for metric in channel_metrics:
+            channels.append(ChannelListResponse(
+                channel_name=metric.channel_name,
+                total_minutes=float(metric.total_minutes or 0),
+                unique_users=metric.unique_users or 0,
+                last_activity=metric.last_activity
+            ))
+        
+        return {"channels": channels}
+        
+    except Exception as e:
+        logger.error(f"Error getting channels for app_id {app_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/api/channel/{app_id}/{channel_name}")
+async def get_channel_details(app_id: str, channel_name: str, db: Session = Depends(get_db)):
+    """Get detailed information for a specific channel"""
+    try:
+        # Get channel sessions
+        sessions = db.query(ChannelSession).filter(
+            ChannelSession.app_id == app_id,
+            ChannelSession.channel_name == channel_name
+        ).order_by(desc(ChannelSession.join_time)).limit(1000).all()  # Limit to prevent huge responses
+        
+        session_responses = []
+        for session in sessions:
+            session_responses.append(ChannelSessionResponse(
+                id=session.id,
+                app_id=session.app_id,
+                channel_name=session.channel_name,
+                uid=session.uid,
+                join_time=session.join_time,
+                leave_time=session.leave_time,
+                duration_seconds=session.duration_seconds,
+                duration_minutes=session.duration_seconds / 60.0 if session.duration_seconds else None
+            ))
+        
+        # Calculate total metrics
+        total_minutes = sum(s.duration_seconds or 0 for s in sessions) / 60.0
+        unique_users = len(set(s.uid for s in sessions))
+        
+        return ChannelDetailResponse(
+            channel_name=channel_name,
+            total_minutes=total_minutes,
+            unique_users=unique_users,
+            sessions=session_responses
+        )
+        
+    except Exception as e:
+        logger.error(f"Error getting channel details for {app_id}/{channel_name}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/api/user/{app_id}/{uid}")
+async def get_user_metrics(app_id: str, uid: int, db: Session = Depends(get_db)):
+    """Get metrics for a specific user"""
+    try:
+        # Get user sessions
+        sessions = db.query(ChannelSession).filter(
+            ChannelSession.app_id == app_id,
+            ChannelSession.uid == uid
+        ).order_by(desc(ChannelSession.join_time)).all()
+        
+        # Group by channel
+        channel_stats = {}
+        for session in sessions:
+            channel = session.channel_name
+            if channel not in channel_stats:
+                channel_stats[channel] = {
+                    'total_minutes': 0,
+                    'session_count': 0
+                }
+            
+            channel_stats[channel]['total_minutes'] += (session.duration_seconds or 0) / 60.0
+            channel_stats[channel]['session_count'] += 1
+        
+        return {
+            "uid": uid,
+            "app_id": app_id,
+            "channel_stats": channel_stats,
+            "total_sessions": len(sessions)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting user metrics for {app_id}/{uid}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+
+if __name__ == "__main__":
+    # Create templates directory if it doesn't exist
+    import os
+    os.makedirs("templates", exist_ok=True)
+    
+    # SSL configuration
+    ssl_kwargs = {}
+    if Config.SSL_CERT_PATH and Config.SSL_KEY_PATH:
+        ssl_kwargs = {
+            "ssl_certfile": Config.SSL_CERT_PATH,
+            "ssl_keyfile": Config.SSL_KEY_PATH
+        }
+        logger.info(f"Starting server with SSL on {Config.HOST}:{Config.PORT}")
+    else:
+        logger.info(f"Starting server without SSL on {Config.HOST}:{Config.PORT}")
+    
+    uvicorn.run(
+        "main:app",
+        host=Config.HOST,
+        port=Config.PORT,
+        reload=False,
+        **ssl_kwargs
+    )
