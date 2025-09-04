@@ -41,14 +41,14 @@ HOST=127.0.0.1
 PORT=8000
 SSL_CERT_PATH=
 SSL_KEY_PATH=
-SECRET_KEY=dev-secret-key-change-in-production
-WEBHOOK_SECRET=dev-webhook-secret-change-in-production
 LOG_LEVEL=DEBUG
 LOG_FILE=agora_webhooks.log
 MAX_WORKERS=2
 """
         env_file.write_text(env_content)
         print("✅ Created .env file")
+    else:
+        print("✅ .env file already exists")
     
     # Create templates directory if it doesn't exist
     templates_dir = Path("templates")
@@ -75,12 +75,11 @@ MAX_WORKERS=2
     print("-" * 50)
     
     try:
-        # Import and run the main application
-        from main import app
+        # Start the server using uvicorn command
         import uvicorn
         
         uvicorn.run(
-            app,
+            "main:app",
             host="127.0.0.1",
             port=8000,
             reload=True,

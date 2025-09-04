@@ -3,6 +3,7 @@ import json
 import logging
 from datetime import datetime
 from typing import Dict, Any
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException, Depends, Form
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
@@ -15,7 +16,6 @@ from config import Config
 from database import get_db, create_tables, ChannelSession, ChannelMetrics, UserMetrics
 from models import WebhookRequest, ChannelSessionResponse, ChannelMetricsResponse, UserMetricsResponse, ChannelListResponse, ChannelDetailResponse
 from webhook_processor import WebhookProcessor
-from security import WebhookSecurity
 
 # Configure logging
 logging.basicConfig(
@@ -28,53 +28,54 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Initialize webhook processor
+webhook_processor = WebhookProcessor()
+
+# Webhook signature verification has been removed for simplified processing
+
 # Create FastAPI app
 app = FastAPI(title="Agora Webhooks Server", version="1.0.0")
+
+# Initialize database on startup
+create_tables()
+logger.info("Database tables created/verified")
 
 # Templates for web interface
 templates = Jinja2Templates(directory="templates")
 
-# Initialize webhook processor
-webhook_processor = WebhookProcessor()
-
-# Webhook signature verification is now handled by WebhookSecurity class
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize database tables on startup"""
-    create_tables()
-    logger.info("Database tables created/verified")
-
 @app.post("/{app_id}/webhooks")
 async def receive_webhook(app_id: str, request: Request):
     """Receive webhook from Agora for specific App ID"""
+    client_ip = request.client.host if request.client else "unknown"
+    user_agent = request.headers.get("user-agent", "unknown")
+    
+    logger.info(f"Received webhook from {client_ip} for app_id: {app_id}, User-Agent: {user_agent}")
+    
     try:
-        # Get raw body for signature verification
+        # Get raw body
         body = await request.body()
-        
-        # Verify signature if configured
-        signature = request.headers.get("Agora-Signature", "")
-        if not WebhookSecurity.verify_webhook_signature(body, signature):
-            logger.warning(f"Invalid webhook signature for app_id: {app_id}")
-            raise HTTPException(status_code=401, detail="Invalid signature")
+        logger.debug(f"Webhook body length: {len(body)} bytes")
         
         # Parse webhook data
         try:
             webhook_data = WebhookRequest.parse_raw(body)
+            logger.debug(f"Parsed webhook: noticeId={webhook_data.noticeId}, eventType={webhook_data.eventType}")
         except Exception as e:
-            logger.error(f"Failed to parse webhook data: {e}")
+            logger.error(f"Failed to parse webhook data from {client_ip}: {e}")
+            logger.error(f"Raw body: {body.decode('utf-8', errors='ignore')[:500]}")
             raise HTTPException(status_code=400, detail="Invalid webhook data")
         
         # Process webhook asynchronously
         await webhook_processor.process_webhook(app_id, webhook_data, body.decode('utf-8'))
         
-        logger.info(f"Webhook processed successfully for app_id: {app_id}, event_type: {webhook_data.eventType}")
+        logger.info(f"Webhook processed successfully for app_id: {app_id}, event_type: {webhook_data.eventType}, from: {client_ip}")
         return JSONResponse(content={"status": "success", "message": "Webhook processed"})
         
-    except HTTPException:
+    except HTTPException as he:
+        logger.error(f"HTTP error processing webhook from {client_ip} for app_id {app_id}: {he.detail}")
         raise
     except Exception as e:
-        logger.error(f"Error processing webhook for app_id {app_id}: {e}")
+        logger.error(f"Error processing webhook for app_id {app_id} from {client_ip}: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/", response_class=HTMLResponse)

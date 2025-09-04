@@ -77,9 +77,7 @@ PORT=443
 SSL_CERT_PATH=/etc/letsencrypt/live/your-domain.com/fullchain.pem
 SSL_KEY_PATH=/etc/letsencrypt/live/your-domain.com/privkey.pem
 
-# Security
-SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')
-WEBHOOK_SECRET=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')
+# Security (no authentication required)
 
 # Logging
 LOG_LEVEL=INFO
@@ -243,7 +241,7 @@ print_warning "⚠️  IMPORTANT: You need to:"
 print_warning "1. Update the domain name in /etc/nginx/sites-available/agora-webhooks"
 print_warning "2. Update the SSL certificate paths in $APP_DIR/.env"
 print_warning "3. Run: sudo certbot --nginx -d your-domain.com"
-print_warning "4. Update WEBHOOK_SECRET in $APP_DIR/.env with your Agora webhook secret"
+print_warning "4. Configure your Agora Console to send webhooks to your server"
 print_warning "5. Configure your Agora Console to send webhooks to https://your-domain.com/{app_id}/webhooks"
 
 echo ""

@@ -7,22 +7,10 @@ This script sends test webhook requests to verify the server is working correctl
 import requests
 import json
 import time
-import hashlib
-import hmac
-from datetime import datetime
 
 # Configuration
 BASE_URL = "http://localhost:8000"  # Change to your server URL
 APP_ID = "test-app-123"  # Test App ID
-WEBHOOK_SECRET = "your-webhook-secret-here"  # Must match your .env file
-
-def create_signature(payload: str, secret: str) -> str:
-    """Create HMAC-SHA256 signature for webhook payload"""
-    return hmac.new(
-        secret.encode('utf-8'),
-        payload.encode('utf-8'),
-        hashlib.sha256
-    ).hexdigest()
 
 def send_test_webhook(event_type: int, channel_name: str, uid: int, duration: int = None):
     """Send a test webhook to the server"""
@@ -44,13 +32,11 @@ def send_test_webhook(event_type: int, channel_name: str, uid: int, duration: in
     }
     
     payload_json = json.dumps(payload)
-    signature = create_signature(payload_json, WEBHOOK_SECRET)
     
     # Send webhook
     url = f"{BASE_URL}/{APP_ID}/webhooks"
     headers = {
-        "Content-Type": "application/json",
-        "Agora-Signature": signature
+        "Content-Type": "application/json"
     }
     
     try:

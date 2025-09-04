@@ -1,0 +1,44 @@
+curl -X POST https://b16099be8a8f.ngrok-free.app/7c9a6773eb7b4650831ecdb3a0931dac/webhooks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "noticeId": "test-123-1",
+    "productId": 1,
+    "eventType": 1,
+    "payload": {
+      "clientSeq": 67890,
+      "uid": 123,
+      "channelName": "test_channel",
+      "ts": 1640995200
+    }
+  }'
+
+curl -X POST https://7fd9a3f999b7.ngrok-free.app/test-app-123/webhooks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "noticeId": "test-123",
+    "productId": 1,
+    "eventType": 1,
+    "payload": {
+      "clientSeq": 67890,
+      "uid": 123,
+      "channelName": "test_channel",
+      "ts": 1640995200
+    }
+  }'
+
+
+
+  curl -X POST https://7fd9a3f999b7.ngrok-free.app/7c9a6773eb7b4650831ecdb3a0931dac/webhooks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "noticeId": "test-123-77",
+    "productId": 1,
+    "eventType": 1,
+    "payload": {
+      "clientSeq": 67890,
+      "uid": 123,
+      "channelName": "test_channel",
+      "ts": 1640995200
+    }
+  }'
+  

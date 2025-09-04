@@ -13,9 +13,7 @@ class Config:
     SSL_CERT_PATH = os.getenv("SSL_CERT_PATH")
     SSL_KEY_PATH = os.getenv("SSL_KEY_PATH")
     
-    # Security
-    SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here")
-    WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "your-webhook-secret-here")
+    # Security (no authentication required)
     
     # Logging
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")

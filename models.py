@@ -1,15 +1,18 @@
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Union
 from datetime import datetime
 
 class WebhookPayload(BaseModel):
-    """Pydantic model for Agora webhook payload"""
-    clientSeq: int
-    uid: int
+    """Pydantic model for Agora webhook payload - flexible to handle different event types"""
+    # Common fields
     channelName: str
+    ts: int
+    
+    # Optional fields that may or may not be present depending on event type
+    clientSeq: Optional[int] = None
+    uid: Optional[int] = None
     platform: Optional[int] = None
     reason: Optional[int] = None
-    ts: int
     duration: Optional[int] = None
 
 class WebhookRequest(BaseModel):
@@ -17,6 +20,7 @@ class WebhookRequest(BaseModel):
     noticeId: str
     productId: int
     eventType: int
+    notifyMs: Optional[int] = None  # Timestamp when notification was sent
     payload: WebhookPayload
 
 class ChannelSessionResponse(BaseModel):

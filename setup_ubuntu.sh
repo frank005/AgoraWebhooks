@@ -55,9 +55,7 @@ PORT=8000
 SSL_CERT_PATH=
 SSL_KEY_PATH=
 
-# Security
-SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')
-WEBHOOK_SECRET=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')
+# Security (no authentication required)
 
 # Logging
 LOG_LEVEL=INFO
@@ -77,7 +75,7 @@ print_warning "⚠️  Next steps:"
 print_warning "1. Activate virtual environment: source venv/bin/activate"
 print_warning "2. Start development server: python start_dev.py"
 print_warning "3. Or run full deployment: ./deploy.sh"
-print_warning "4. Update WEBHOOK_SECRET in .env with your Agora webhook secret"
+print_warning "4. Configure your Agora Console to send webhooks to your server"
 
 echo ""
 print_status "🎉 Ready to go! Run 'source venv/bin/activate && python start_dev.py' to start"

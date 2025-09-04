@@ -7,7 +7,7 @@ A Python-based webhook server for receiving and processing Agora video calling n
 - **Webhook Reception**: Receives Agora webhooks via HTTPS POST requests with route-based App ID handling
 - **Real-time Processing**: Processes webhook events and calculates usage metrics
 - **Web Dashboard**: Beautiful web interface for viewing channel analytics and user statistics
-- **Security**: HMAC signature verification for webhook authenticity
+- **Security**: Simplified webhook processing without signature verification
 - **Database Storage**: SQLite database for storing webhook events and calculated metrics
 - **Monitoring**: Built-in health checks and monitoring scripts
 - **Production Ready**: Systemd service, nginx reverse proxy, SSL support
@@ -46,10 +46,10 @@ pip install -r requirements.txt
 
 ### 3. Configure Environment
 
-Copy and edit the configuration:
+Create your environment configuration:
 
 ```bash
-cp config.py .env
+cp env.example .env
 # Edit .env with your settings
 ```
 
@@ -80,8 +80,6 @@ Run the deployment script on your Ubuntu 24.04 server:
 | `PORT` | Server port | `443` |
 | `SSL_CERT_PATH` | SSL certificate path | None |
 | `SSL_KEY_PATH` | SSL private key path | None |
-| `SECRET_KEY` | Application secret key | Auto-generated |
-| `WEBHOOK_SECRET` | Agora webhook secret | Auto-generated |
 | `LOG_LEVEL` | Logging level | `INFO` |
 | `LOG_FILE` | Log file path | `agora_webhooks.log` |
 
@@ -106,14 +104,12 @@ POST /{app_id}/webhooks
 Receives Agora webhook notifications for the specified App ID.
 
 **Headers:**
-- `Agora-Signature`: HMAC signature for verification
 - `Content-Type`: `application/json`
 
 **Example:**
 ```bash
 curl -X POST https://your-domain.com/your-app-id/webhooks \
   -H "Content-Type: application/json" \
-  -H "Agora-Signature: your-signature" \
   -d '{
     "noticeId": "12345",
     "productId": 1,
@@ -176,10 +172,10 @@ curl https://your-domain.com/health
 
 ## Security
 
-- **HMAC Signature Verification**: All webhooks are verified using HMAC-SHA256
 - **HTTPS Only**: Production deployment uses SSL/TLS encryption
 - **Security Headers**: Nginx configured with security headers
 - **Firewall**: UFW configured to allow only necessary ports
+- **No Signature Verification**: Webhooks are accepted without signature validation for simplified operation
 
 ## Troubleshooting
 
@@ -191,9 +187,9 @@ curl https://your-domain.com/health
    sudo journalctl -u agora-webhooks -n 50
    ```
 
-2. **Webhook signature verification fails**
-   - Check `WEBHOOK_SECRET` in `.env` matches Agora Console
-   - Verify webhook payload format
+2. **Webhook processing fails**
+   - Check webhook payload format matches expected structure
+   - Verify App ID in URL path is valid
 
 3. **Database issues**
    ```bash
@@ -223,7 +219,6 @@ AgoraWebhooks/
 ├── database.py          # Database models and setup
 ├── models.py            # Pydantic models
 ├── webhook_processor.py # Webhook processing logic
-├── security.py          # Security utilities
 ├── templates/           # HTML templates
 │   └── index.html      # Web dashboard
 ├── requirements.txt     # Python dependencies
