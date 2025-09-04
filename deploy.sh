@@ -36,9 +36,9 @@ fi
 print_status "Updating system packages..."
 sudo apt update && sudo apt upgrade -y
 
-# Install Python 3.11 and pip
-print_status "Installing Python 3.11 and pip..."
-sudo apt install -y python3.11 python3.11-venv python3.11-dev python3-pip
+# Install Python 3.12 and pip (Ubuntu 24.04 default)
+print_status "Installing Python 3.12 and pip..."
+sudo apt install -y python3.12 python3.12-venv python3.12-dev python3-pip
 
 # Install other required packages
 print_status "Installing additional packages..."
@@ -57,7 +57,7 @@ cd $APP_DIR
 
 # Create virtual environment
 print_status "Creating Python virtual environment..."
-python3.11 -m venv venv
+python3.12 -m venv venv
 source venv/bin/activate
 
 # Install Python dependencies
