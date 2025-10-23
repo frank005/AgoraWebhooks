@@ -189,6 +189,22 @@ async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
 
+@app.get("/debug/cache")
+async def debug_cache():
+    """Debug endpoint to check webhook processor cache status"""
+    try:
+        # Get cache stats from the webhook processor
+        # Note: This assumes we have access to the processor instance
+        # In a real implementation, you might want to store this in a global variable
+        # or use a different approach to access the processor
+        return {
+            "message": "Cache debug endpoint - check server logs for cache stats",
+            "note": "Cache statistics are logged when webhooks are processed"
+        }
+    except Exception as e:
+        logger.error(f"Error getting cache stats: {e}")
+        return {"error": "Failed to get cache stats"}
+
 if __name__ == "__main__":
     # Create templates directory if it doesn't exist
     import os

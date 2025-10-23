@@ -179,6 +179,12 @@
             border-radius: 12px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             margin-top: 20px;
+            min-height: 200px;
+            width: 100%;
+        }
+        
+        .channel-details.show {
+            display: block !important;
         }
         
         .sessions-table {
@@ -292,12 +298,14 @@
         }
         
         function displayChannels(channels) {
+            console.log('displayChannels called with channels:', channels);
             const grid = document.getElementById('channels-grid');
+            console.log('Grid element:', grid);
             
             if (channels.length === 0) {
                 grid.innerHTML = '<div class="no-data">No channels found for this App ID</div>';
             } else {
-                grid.innerHTML = channels.map(channel => `
+                const channelHTML = channels.map(channel => `
                     <div class="channel-card" onclick="loadChannelDetails('${channel.channel_name}')">
                         <div class="channel-name">${channel.channel_name}</div>
                         <div class="channel-stats">
@@ -315,24 +323,33 @@
                         </div>
                     </div>
                 `).join('');
+                console.log('Generated channel HTML:', channelHTML);
+                grid.innerHTML = channelHTML;
             }
             
             showResults();
         }
         
         async function loadChannelDetails(channelName) {
+            console.log('loadChannelDetails called with channelName:', channelName);
             showLoading();
             
             try {
-                const response = await fetch(`/api/channel/${currentAppId}/${encodeURIComponent(channelName)}`);
+                const url = `/api/channel/${currentAppId}/${encodeURIComponent(channelName)}`;
+                console.log('Fetching URL:', url);
+                const response = await fetch(url);
+                console.log('Response status:', response.status);
+                
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
                 
                 const data = await response.json();
+                console.log('Response data:', data);
                 displayChannelDetails(data);
                 
             } catch (error) {
+                console.error('Error in loadChannelDetails:', error);
                 showError(`Failed to load channel details: ${error.message}`);
             } finally {
                 hideLoading();
@@ -340,9 +357,14 @@
         }
         
         function displayChannelDetails(data) {
+            console.log('displayChannelDetails called with data:', data);
+            
             document.getElementById('channel-details-title').textContent = `Channel: ${data.channel_name}`;
             
             const content = document.getElementById('channel-details-content');
+            console.log('Content element found:', content);
+            console.log('Content innerHTML length:', content.innerHTML.length);
+            console.log('Content innerHTML preview:', content.innerHTML.substring(0, 200));
             
             if (data.sessions.length === 0) {
                 content.innerHTML = '<div class="no-data">No sessions found for this channel</div>';
@@ -388,17 +410,46 @@
                 `;
             }
             
+            console.log('About to call showChannelDetails()');
             showChannelDetails();
         }
         
         function showChannelsView() {
             document.getElementById('channels-view').style.display = 'block';
-            document.getElementById('channel-details').style.display = 'none';
+            const channelDetails = document.getElementById('channel-details');
+            channelDetails.style.display = 'none';
+            channelDetails.classList.remove('show');
         }
         
         function showChannelDetails() {
-            document.getElementById('channels-view').style.display = 'none';
-            document.getElementById('channel-details').style.display = 'block';
+            console.log('showChannelDetails called');
+            
+            // First, ensure the results container is visible
+            const results = document.getElementById('results');
+            if (results) {
+                results.style.display = 'block';
+                console.log('Set results container display to block');
+            }
+            
+            const channelsView = document.getElementById('channels-view');
+            const channelDetails = document.getElementById('channel-details');
+            console.log('channels-view element:', channelsView);
+            console.log('channel-details element:', channelDetails);
+            
+            if (channelsView) {
+                channelsView.style.display = 'none';
+                console.log('Set channels-view display to none');
+            }
+            if (channelDetails) {
+                channelDetails.style.display = 'block';
+                channelDetails.classList.add('show');
+                console.log('Set channel-details display to block and added show class');
+                console.log('Channel details computed style:', window.getComputedStyle(channelDetails).display);
+                console.log('Channel details offsetHeight:', channelDetails.offsetHeight);
+                console.log('Channel details offsetWidth:', channelDetails.offsetWidth);
+                console.log('Channel details innerHTML length:', channelDetails.innerHTML.length);
+                console.log('Channel details innerHTML preview:', channelDetails.innerHTML.substring(0, 300));
+            }
         }
         
         function showLoading() {

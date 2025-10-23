@@ -84,7 +84,7 @@ def simulate_user_session():
     
     # User joins channel
     print(f"User {uid} joining channel '{channel_name}'...")
-    join_success = send_test_webhook(1, channel_name, uid)
+    join_success = send_test_webhook(103, channel_name, uid)
     
     if join_success:
         # Wait a bit
@@ -92,7 +92,7 @@ def simulate_user_session():
         
         # User leaves channel
         print(f"User {uid} leaving channel '{channel_name}'...")
-        leave_success = send_test_webhook(2, channel_name, uid, duration=120)  # 2 minutes
+        leave_success = send_test_webhook(104, channel_name, uid, duration=120)  # 2 minutes
         
         if leave_success:
             print(f"✅ Complete session simulated successfully")
@@ -121,13 +121,13 @@ def main():
     print("\n3. Testing webhook reception...")
     
     # Test individual events
-    send_test_webhook(1, "test-channel-1", 111, None)  # Join
+    send_test_webhook(103, "test-channel-1", 111, None)  # Join
     time.sleep(1)
-    send_test_webhook(2, "test-channel-1", 111, 60)    # Leave after 1 minute
+    send_test_webhook(104, "test-channel-1", 111, 60)    # Leave after 1 minute
     
-    send_test_webhook(1, "test-channel-2", 222, None)  # Join
+    send_test_webhook(103, "test-channel-2", 222, None)  # Join
     time.sleep(1)
-    send_test_webhook(2, "test-channel-2", 222, 180)   # Leave after 3 minutes
+    send_test_webhook(104, "test-channel-2", 222, 180)   # Leave after 3 minutes
     
     # Simulate complete session
     channel_name = simulate_user_session()

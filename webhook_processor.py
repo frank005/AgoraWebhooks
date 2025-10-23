@@ -1,8 +1,9 @@
 import asyncio
 import json
 import logging
+import time
 from datetime import datetime, timedelta
-from typing import Dict, Any
+from typing import Dict, Any, Set
 from sqlalchemy.orm import Session
 from database import SessionLocal, WebhookEvent, ChannelSession, ChannelMetrics, UserMetrics
 from models import WebhookRequest
@@ -14,11 +15,54 @@ class WebhookProcessor:
     
     def __init__(self):
         self.db = SessionLocal()
+        # In-memory cache to track recent noticeIds (max 10 entries)
+        self.recent_notice_ids: Set[str] = set()
+        self.max_cache_size = 10
     
+    def _is_duplicate_webhook(self, notice_id: str) -> bool:
+        """Check if this notice_id has been seen recently (in-memory check)"""
+        logger.info(f"Checking for duplicate notice_id: {notice_id}")
+        logger.info(f"Current cache: {list(self.recent_notice_ids)}")
+        
+        if notice_id in self.recent_notice_ids:
+            logger.warning(f"DUPLICATE WEBHOOK DETECTED for notice_id: {notice_id}")
+            return True
+        
+        logger.info(f"Notice_id {notice_id} is unique")
+        return False
+    
+    def _add_to_cache(self, notice_id: str):
+        """Add notice_id to cache, maintaining max size"""
+        # If cache is full, remove the oldest entry (FIFO)
+        if len(self.recent_notice_ids) >= self.max_cache_size:
+            # Convert set to list to remove first element
+            notice_ids_list = list(self.recent_notice_ids)
+            self.recent_notice_ids.remove(notice_ids_list[0])
+        
+        # Add new notice_id
+        self.recent_notice_ids.add(notice_id)
+        logger.debug(f"Added notice_id {notice_id} to cache. Cache size: {len(self.recent_notice_ids)}")
+    
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Get cache statistics for debugging"""
+        return {
+            "cache_size": len(self.recent_notice_ids),
+            "max_cache_size": self.max_cache_size,
+            "recent_notice_ids": list(self.recent_notice_ids)
+        }
+
     async def process_webhook(self, app_id: str, webhook_data: WebhookRequest, raw_payload: str):
         """Process a webhook event and update relevant tables for the specific App ID"""
         try:
-            logger.info(f"Processing webhook for App ID: {app_id}, Event Type: {webhook_data.eventType}")
+            logger.info(f"Processing webhook for App ID: {app_id}, Event Type: {webhook_data.eventType}, Notice ID: {webhook_data.noticeId}")
+            
+            # Check for duplicates using in-memory cache
+            if self._is_duplicate_webhook(webhook_data.noticeId):
+                logger.info(f"Skipping duplicate webhook for notice_id: {webhook_data.noticeId}")
+                return  # Exit early for duplicates
+            
+            # Add to cache to prevent future duplicates
+            self._add_to_cache(webhook_data.noticeId)
             
             # Store raw webhook event (automatically creates tables if they don't exist)
             await self._store_webhook_event(app_id, webhook_data, raw_payload)
@@ -45,14 +89,7 @@ class WebhookProcessor:
     
     async def _store_webhook_event(self, app_id: str, webhook_data: WebhookRequest, raw_payload: str):
         """Store raw webhook event in database"""
-        # Check if this notice_id already exists
-        existing_event = self.db.query(WebhookEvent).filter(
-            WebhookEvent.notice_id == webhook_data.noticeId
-        ).first()
-        
-        if existing_event:
-            logger.warning(f"Webhook with notice_id {webhook_data.noticeId} already exists, skipping duplicate")
-            return
+        # Note: Duplicate checking is now handled by in-memory cache in process_webhook()
         
         event = WebhookEvent(
             app_id=app_id,
