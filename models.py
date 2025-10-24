@@ -55,6 +55,7 @@ class UserMetricsResponse(BaseModel):
 class ChannelListResponse(BaseModel):
     """Response model for channel list with basic info"""
     channel_name: str
+    channel_session_id: Optional[str]
     total_minutes: float
     unique_users: int
     last_activity: datetime

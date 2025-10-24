@@ -18,6 +18,8 @@ class WebhookProcessor:
         # In-memory cache to track recent noticeIds (max 10 entries)
         self.recent_notice_ids: Set[str] = set()
         self.max_cache_size = 10
+        # In-memory cache to track active channel sessions
+        self.active_channel_sessions: Dict[str, str] = {}  # {app_id:channel_name -> channel_session_id}
     
     def _is_duplicate_webhook(self, notice_id: str) -> bool:
         """Check if this notice_id has been seen recently (in-memory check)"""
@@ -43,12 +45,37 @@ class WebhookProcessor:
         self.recent_notice_ids.add(notice_id)
         logger.debug(f"Added notice_id {notice_id} to cache. Cache size: {len(self.recent_notice_ids)}")
     
+    def _get_or_create_channel_session_id(self, app_id: str, channel_name: str) -> str:
+        """Get or create a channel session ID for the given app_id and channel_name"""
+        session_key = f"{app_id}:{channel_name}"
+        
+        # Check if there's an active session
+        if session_key in self.active_channel_sessions:
+            return self.active_channel_sessions[session_key]
+        
+        # Create new session ID
+        session_id = f"{app_id}_{channel_name}_{int(time.time())}"
+        self.active_channel_sessions[session_key] = session_id
+        logger.info(f"Created new channel session: {session_key} -> {session_id}")
+        return session_id
+    
+    def _close_channel_session(self, app_id: str, channel_name: str):
+        """Close a channel session when channel is destroyed (event 102)"""
+        session_key = f"{app_id}:{channel_name}"
+        if session_key in self.active_channel_sessions:
+            session_id = self.active_channel_sessions[session_key]
+            del self.active_channel_sessions[session_key]
+            logger.info(f"Closed channel session: {session_key} -> {session_id}")
+        else:
+            logger.warning(f"Attempted to close non-existent channel session: {session_key}")
+
     def get_cache_stats(self) -> Dict[str, Any]:
         """Get cache statistics for debugging"""
         return {
             "cache_size": len(self.recent_notice_ids),
             "max_cache_size": self.max_cache_size,
-            "recent_notice_ids": list(self.recent_notice_ids)
+            "recent_notice_ids": list(self.recent_notice_ids),
+            "active_channel_sessions": self.active_channel_sessions
         }
 
     async def process_webhook(self, app_id: str, webhook_data: WebhookRequest, raw_payload: str):
@@ -64,15 +91,22 @@ class WebhookProcessor:
             # Add to cache to prevent future duplicates
             self._add_to_cache(webhook_data.noticeId)
             
+            # Handle channel session lifecycle
+            channel_session_id = None
+            if webhook_data.eventType == 102:  # Channel destroyed
+                self._close_channel_session(app_id, webhook_data.payload.channelName)
+            elif webhook_data.eventType in [101, 103, 105, 107]:  # Channel created or user joined
+                channel_session_id = self._get_or_create_channel_session_id(app_id, webhook_data.payload.channelName)
+            
             # Store raw webhook event (automatically creates tables if they don't exist)
-            await self._store_webhook_event(app_id, webhook_data, raw_payload)
+            await self._store_webhook_event(app_id, webhook_data, raw_payload, channel_session_id)
             
             # Process based on event type (only for events with uid and clientSeq)
             if webhook_data.payload.uid is not None and webhook_data.payload.clientSeq is not None:
                 if webhook_data.eventType in [103, 105, 107]:  # User joined channel (broadcaster/audience/communication)
-                    await self._handle_user_join(app_id, webhook_data)
+                    await self._handle_user_join(app_id, webhook_data, channel_session_id)
                 elif webhook_data.eventType in [104, 106, 108]:  # User left channel (broadcaster/audience/communication)
-                    await self._handle_user_leave(app_id, webhook_data)
+                    await self._handle_user_leave(app_id, webhook_data, channel_session_id)
             else:
                 logger.info(f"Skipping session processing for event type {webhook_data.eventType} - missing uid or clientSeq")
             
@@ -87,7 +121,7 @@ class WebhookProcessor:
             logger.error(f"Error processing webhook for App ID {app_id}: {e}")
             raise
     
-    async def _store_webhook_event(self, app_id: str, webhook_data: WebhookRequest, raw_payload: str):
+    async def _store_webhook_event(self, app_id: str, webhook_data: WebhookRequest, raw_payload: str, channel_session_id: str = None):
         """Store raw webhook event in database"""
         # Note: Duplicate checking is now handled by in-memory cache in process_webhook()
         
@@ -103,18 +137,20 @@ class WebhookProcessor:
             reason=webhook_data.payload.reason,
             ts=webhook_data.payload.ts,
             duration=webhook_data.payload.duration,
+            channel_session_id=channel_session_id,
             raw_payload=raw_payload
         )
         self.db.add(event)
     
-    async def _handle_user_join(self, app_id: str, webhook_data: WebhookRequest):
+    async def _handle_user_join(self, app_id: str, webhook_data: WebhookRequest, channel_session_id: str = None):
         """Handle user join event - create new session"""
         join_time = datetime.fromtimestamp(webhook_data.payload.ts)
         
-        # Check if there's an existing open session for this user in this channel
+        # Check if there's an existing open session for this user in this channel session
         existing_session = self.db.query(ChannelSession).filter(
             ChannelSession.app_id == app_id,
             ChannelSession.channel_name == webhook_data.payload.channelName,
+            ChannelSession.channel_session_id == channel_session_id,
             ChannelSession.uid == webhook_data.payload.uid,
             ChannelSession.leave_time.is_(None)
         ).first()
@@ -128,20 +164,22 @@ class WebhookProcessor:
             session = ChannelSession(
                 app_id=app_id,
                 channel_name=webhook_data.payload.channelName,
+                channel_session_id=channel_session_id,
                 uid=webhook_data.payload.uid,
                 join_time=join_time
             )
             self.db.add(session)
-            logger.info(f"Created new session for user {webhook_data.payload.uid} in channel {webhook_data.payload.channelName}")
+            logger.info(f"Created new session for user {webhook_data.payload.uid} in channel {webhook_data.payload.channelName} (session: {channel_session_id})")
     
-    async def _handle_user_leave(self, app_id: str, webhook_data: WebhookRequest):
+    async def _handle_user_leave(self, app_id: str, webhook_data: WebhookRequest, channel_session_id: str = None):
         """Handle user leave event - close existing session"""
         leave_time = datetime.fromtimestamp(webhook_data.payload.ts)
         
-        # Find the most recent open session for this user in this channel
+        # Find the most recent open session for this user in this channel session
         session = self.db.query(ChannelSession).filter(
             ChannelSession.app_id == app_id,
             ChannelSession.channel_name == webhook_data.payload.channelName,
+            ChannelSession.channel_session_id == channel_session_id,
             ChannelSession.uid == webhook_data.payload.uid,
             ChannelSession.leave_time.is_(None)
         ).order_by(ChannelSession.join_time.desc()).first()
@@ -157,6 +195,7 @@ class WebhookProcessor:
                 session = ChannelSession(
                     app_id=app_id,
                     channel_name=webhook_data.payload.channelName,
+                    channel_session_id=channel_session_id,
                     uid=webhook_data.payload.uid,
                     join_time=join_time,
                     leave_time=leave_time,
@@ -175,33 +214,40 @@ class WebhookProcessor:
         event_date = datetime.fromtimestamp(webhook_data.payload.ts).date()
         event_datetime = datetime.combine(event_date, datetime.min.time())
         
+        # Get channel session ID for metrics
+        session_key = f"{app_id}:{channel_name}"
+        channel_session_id = self.active_channel_sessions.get(session_key)
+        
         # Update channel metrics
-        await self._update_channel_metrics(app_id, channel_name, event_datetime)
+        await self._update_channel_metrics(app_id, channel_name, event_datetime, channel_session_id)
         
         # Update user metrics only if uid is available
         if uid is not None:
-            await self._update_user_metrics(app_id, uid, channel_name, event_datetime)
+            await self._update_user_metrics(app_id, uid, channel_name, event_datetime, channel_session_id)
     
-    async def _update_channel_metrics(self, app_id: str, channel_name: str, date: datetime):
-        """Update or create channel metrics for a specific date"""
+    async def _update_channel_metrics(self, app_id: str, channel_name: str, date: datetime, channel_session_id: str = None):
+        """Update or create channel metrics for a specific date and channel session"""
         metrics = self.db.query(ChannelMetrics).filter(
             ChannelMetrics.app_id == app_id,
             ChannelMetrics.channel_name == channel_name,
+            ChannelMetrics.channel_session_id == channel_session_id,
             ChannelMetrics.date == date
         ).first()
         
-        # Calculate metrics from both sessions and raw webhook events
+        # Calculate metrics from both sessions and raw webhook events for this channel session
         sessions = self.db.query(ChannelSession).filter(
             ChannelSession.app_id == app_id,
             ChannelSession.channel_name == channel_name,
+            ChannelSession.channel_session_id == channel_session_id,
             ChannelSession.join_time >= date,
             ChannelSession.join_time < date + timedelta(days=1)
         ).all()
         
-        # Also get webhook events for this channel/date to count total activity
+        # Also get webhook events for this channel session/date to count total activity
         webhook_events = self.db.query(WebhookEvent).filter(
             WebhookEvent.app_id == app_id,
             WebhookEvent.channel_name == channel_name,
+            WebhookEvent.channel_session_id == channel_session_id,
             WebhookEvent.ts >= int(date.timestamp()),
             WebhookEvent.ts < int((date + timedelta(days=1)).timestamp())
         ).all()
@@ -220,6 +266,7 @@ class WebhookProcessor:
             metrics = ChannelMetrics(
                 app_id=app_id,
                 channel_name=channel_name,
+                channel_session_id=channel_session_id,
                 date=date,
                 total_users=total_users,
                 total_minutes=total_minutes,
@@ -232,21 +279,23 @@ class WebhookProcessor:
             metrics.total_users = total_users
             metrics.updated_at = datetime.utcnow()
     
-    async def _update_user_metrics(self, app_id: str, uid: int, channel_name: str, date: datetime):
-        """Update or create user metrics for a specific date"""
+    async def _update_user_metrics(self, app_id: str, uid: int, channel_name: str, date: datetime, channel_session_id: str = None):
+        """Update or create user metrics for a specific date and channel session"""
         metrics = self.db.query(UserMetrics).filter(
             UserMetrics.app_id == app_id,
             UserMetrics.uid == uid,
             UserMetrics.channel_name == channel_name,
+            UserMetrics.channel_session_id == channel_session_id,
             UserMetrics.date == date
         ).first()
         
         if not metrics:
-            # Calculate metrics for this user/date
+            # Calculate metrics for this user/date/channel session
             sessions = self.db.query(ChannelSession).filter(
                 ChannelSession.app_id == app_id,
                 ChannelSession.uid == uid,
                 ChannelSession.channel_name == channel_name,
+                ChannelSession.channel_session_id == channel_session_id,
                 ChannelSession.join_time >= date,
                 ChannelSession.join_time < date + timedelta(days=1)
             ).all()
@@ -258,6 +307,7 @@ class WebhookProcessor:
                 app_id=app_id,
                 uid=uid,
                 channel_name=channel_name,
+                channel_session_id=channel_session_id,
                 date=date,
                 total_minutes=total_minutes,
                 session_count=session_count
@@ -269,6 +319,7 @@ class WebhookProcessor:
                 ChannelSession.app_id == app_id,
                 ChannelSession.uid == uid,
                 ChannelSession.channel_name == channel_name,
+                ChannelSession.channel_session_id == channel_session_id,
                 ChannelSession.join_time >= date,
                 ChannelSession.join_time < date + timedelta(days=1)
             ).all()

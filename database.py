@@ -28,6 +28,9 @@ class WebhookEvent(Base):
     ts = Column(Integer, nullable=False, index=True)  # Unix timestamp
     duration = Column(Integer)  # Duration in seconds
     
+    # Channel session tracking
+    channel_session_id = Column(String(100), nullable=True, index=True)
+    
     # Metadata
     received_at = Column(DateTime, default=datetime.utcnow, index=True)
     raw_payload = Column(Text)  # Store original JSON payload
@@ -47,6 +50,9 @@ class ChannelSession(Base):
     app_id = Column(String(50), nullable=False, index=True)
     channel_name = Column(String(255), nullable=False, index=True)
     uid = Column(Integer, nullable=False, index=True)
+    
+    # Channel session tracking
+    channel_session_id = Column(String(100), nullable=True, index=True)
     
     # Session timing
     join_time = Column(DateTime, nullable=False, index=True)
@@ -70,6 +76,7 @@ class ChannelMetrics(Base):
     id = Column(Integer, primary_key=True, index=True)
     app_id = Column(String(50), nullable=False, index=True)
     channel_name = Column(String(255), nullable=False, index=True)
+    channel_session_id = Column(String(100), nullable=True, index=True)
     date = Column(DateTime, nullable=False, index=True)  # Date for daily aggregation
     
     # Metrics
@@ -94,6 +101,7 @@ class UserMetrics(Base):
     app_id = Column(String(50), nullable=False, index=True)
     uid = Column(Integer, nullable=False, index=True)
     channel_name = Column(String(255), nullable=False, index=True)
+    channel_session_id = Column(String(100), nullable=True, index=True)
     date = Column(DateTime, nullable=False, index=True)  # Date for daily aggregation
     
     # Metrics

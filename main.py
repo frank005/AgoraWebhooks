@@ -87,20 +87,31 @@ async def web_interface(request: Request):
 async def get_channels(app_id: str, db: Session = Depends(get_db)):
     """Get list of channels for an App ID"""
     try:
-        # Get channel metrics aggregated by channel
+        # Get channel metrics aggregated by channel session
         channel_metrics = db.query(
             ChannelMetrics.channel_name,
+            ChannelMetrics.channel_session_id,
             func.sum(ChannelMetrics.total_minutes).label('total_minutes'),
             func.max(ChannelMetrics.unique_users).label('unique_users'),
             func.max(ChannelMetrics.updated_at).label('last_activity')
         ).filter(
             ChannelMetrics.app_id == app_id
-        ).group_by(ChannelMetrics.channel_name).order_by(desc('last_activity')).all()
+        ).group_by(ChannelMetrics.channel_name, ChannelMetrics.channel_session_id).order_by(desc('last_activity')).all()
         
         channels = []
         for metric in channel_metrics:
+            # Create a display name that includes session info if there are multiple sessions
+            display_name = metric.channel_name
+            if metric.channel_session_id:
+                # Extract session number from session ID (last part after underscore)
+                session_parts = metric.channel_session_id.split('_')
+                if len(session_parts) > 2:
+                    session_num = session_parts[-1]
+                    display_name = f"{metric.channel_name} (Session {session_num})"
+            
             channels.append(ChannelListResponse(
-                channel_name=metric.channel_name,
+                channel_name=display_name,
+                channel_session_id=metric.channel_session_id,
                 total_minutes=float(metric.total_minutes or 0),
                 unique_users=metric.unique_users or 0,
                 last_activity=metric.last_activity
@@ -113,14 +124,19 @@ async def get_channels(app_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/channel/{app_id}/{channel_name}")
-async def get_channel_details(app_id: str, channel_name: str, db: Session = Depends(get_db)):
-    """Get detailed information for a specific channel"""
+async def get_channel_details(app_id: str, channel_name: str, session_id: str = None, db: Session = Depends(get_db)):
+    """Get detailed information for a specific channel session"""
     try:
-        # Get channel sessions
-        sessions = db.query(ChannelSession).filter(
+        # Get channel sessions for the specific session ID
+        query = db.query(ChannelSession).filter(
             ChannelSession.app_id == app_id,
             ChannelSession.channel_name == channel_name
-        ).order_by(desc(ChannelSession.join_time)).limit(1000).all()  # Limit to prevent huge responses
+        )
+        
+        if session_id:
+            query = query.filter(ChannelSession.channel_session_id == session_id)
+        
+        sessions = query.order_by(desc(ChannelSession.join_time)).limit(1000).all()  # Limit to prevent huge responses
         
         session_responses = []
         for session in sessions:

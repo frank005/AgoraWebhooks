@@ -306,7 +306,7 @@
                 grid.innerHTML = '<div class="no-data">No channels found for this App ID</div>';
             } else {
                 const channelHTML = channels.map(channel => `
-                    <div class="channel-card" onclick="loadChannelDetails('${channel.channel_name}')">
+                    <div class="channel-card" onclick="loadChannelDetails('${channel.channel_name}', '${channel.channel_session_id || ''}')">
                         <div class="channel-name">${channel.channel_name}</div>
                         <div class="channel-stats">
                             <div class="stat">
@@ -330,12 +330,15 @@
             showResults();
         }
         
-        async function loadChannelDetails(channelName) {
-            console.log('loadChannelDetails called with channelName:', channelName);
+        async function loadChannelDetails(channelName, sessionId = null) {
+            console.log('loadChannelDetails called with channelName:', channelName, 'sessionId:', sessionId);
             showLoading();
             
             try {
-                const url = `/api/channel/${currentAppId}/${encodeURIComponent(channelName)}`;
+                let url = `/api/channel/${currentAppId}/${encodeURIComponent(channelName)}`;
+                if (sessionId) {
+                    url += `?session_id=${encodeURIComponent(sessionId)}`;
+                }
                 console.log('Fetching URL:', url);
                 const response = await fetch(url);
                 console.log('Response status:', response.status);
