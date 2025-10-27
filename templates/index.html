@@ -222,6 +222,32 @@
             background-color: #f8f9fa;
         }
         
+        .account-cell {
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            position: relative;
+            cursor: help;
+        }
+        
+        .account-cell:hover::after {
+            content: attr(data-full-account);
+            position: absolute;
+            background: #333;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            white-space: normal;
+            word-break: break-all;
+            max-width: 300px;
+            z-index: 1000;
+            top: 100%;
+            left: 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+        
         .error {
             background: #fee;
             color: #c33;
@@ -496,20 +522,93 @@
                         <thead>
                             <tr>
                                 <th>User ID</th>
+                                <th>Account</th>
+                                <th>Platform</th>
+                                <th>Product ID</th>
+                                <th>Reason</th>
                                 <th>Join Time</th>
                                 <th>Leave Time</th>
                                 <th>Duration</th>
                             </tr>
                         </thead>
                         <tbody>
-                            ${data.sessions.map(session => `
+                            ${data.sessions.map(session => {
+                                // Platform mapping
+                                const platformNames = {
+                                    0: "Other",
+                                    1: "Android",
+                                    2: "iOS", 
+                                    5: "Windows",
+                                    6: "Linux",
+                                    7: "Web",
+                                    8: "macOS"
+                                };
+                                
+                                // Product ID mapping
+                                const productNames = {
+                                    1: "RTC", 3: "Cloud Recording", 4: "Media Pull", 5: "Media Push"
+                                };
+                                
+                                // Platform mapping with client type for Linux
+                                let platformName = 'N/A';
+                                if (session.platform) {
+                                    const platformNames = {
+                                        0: "Other",
+                                        1: "Android",
+                                        2: "iOS", 
+                                        5: "Windows",
+                                        6: "Linux",
+                                        7: "Web",
+                                        8: "macOS"
+                                    };
+                                    
+                                    const clientTypeNames = {
+                                        3: "Local server recording",
+                                        8: "Applets", 
+                                        10: "Cloud recording",
+					28: "Media Pull",
+					30: "Media Push",
+					43: "Media Relay",
+					47: "STT pubBot 6.x",
+					48: "STT subBot 6.x",
+					50: "Media Gateway",
+					60: "Conversational AI",
+					68: "Real-Time STT"
+                                    };
+                                    
+                                    platformName = platformNames[session.platform] || session.platform;
+                                    
+                                    // If it's Linux (6) and we have a client type, append it
+                                    if (session.platform === 6 && session.client_type) {
+                                        const clientName = clientTypeNames[session.client_type] || session.client_type;
+                                        platformName = `${platformName} (${clientName})`;
+                                    }
+                                }
+                                const productName = session.product_id ? 
+                                    (productNames[session.product_id] || session.product_id) : 'N/A';
+                                
+                                // Handle account display with truncation
+                                const accountValue = session.uid && session.uid.toString().length > 8 ? session.uid : '';
+                                const accountDisplay = accountValue ? 
+                                    (accountValue.toString().length > 20 ? 
+                                        accountValue.toString().substring(0, 20) + '...' : 
+                                        accountValue.toString()) : '';
+                                
+                                return `
                                 <tr>
                                     <td>${session.uid}</td>
+                                    <td class="account-cell" data-full-account="${accountValue}" title="${accountValue}">
+                                        ${accountDisplay}
+                                    </td>
+                                    <td>${platformName}</td>
+                                    <td>${productName}</td>
+                                    <td>${session.reason || 'N/A'}</td>
                                     <td>${new Date(session.join_time).toLocaleString()}</td>
                                     <td>${session.leave_time ? new Date(session.leave_time).toLocaleString() : 'Active'}</td>
                                     <td>${session.duration_minutes ? session.duration_minutes.toFixed(1) + ' min' : 'N/A'}</td>
                                 </tr>
-                            `).join('')}
+                            `;
+                            }).join('')}
                         </tbody>
                     </table>
                 `;

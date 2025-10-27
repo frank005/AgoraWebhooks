@@ -7,6 +7,7 @@ from typing import Dict, Any, Set
 from sqlalchemy.orm import Session
 from database import SessionLocal, WebhookEvent, ChannelSession, ChannelMetrics, UserMetrics
 from models import WebhookRequest
+from mappings import log_unknown_values
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,10 @@ class WebhookProcessor:
             session_key = f"{app_id}:{channel_name}"
             self.active_channel_sessions[session_key] = call_id
             logger.info(f"Opened channel epoch: {session_key} -> {call_id}")
+            
+            # Merge any provisional sessions for this channel
+            self._merge_provisional_sessions(app_id, channel_name, call_id)
+            
             return call_id
         elif event_type == 102:  # Channel destroyed
             # Close the channel epoch
@@ -140,6 +145,34 @@ class WebhookProcessor:
             logger.info(f"Closed channel session: {session_key} -> {session_id}")
         else:
             logger.warning(f"Attempted to close non-existent channel session: {session_key}")
+    
+    def _merge_provisional_sessions(self, app_id: str, channel_name: str, correct_session_id: str):
+        """Merge provisional sessions into the correct channel session when channel is created"""
+        try:
+            # Find all provisional sessions for this channel
+            provisional_sessions = self.db.query(ChannelSession).filter(
+                ChannelSession.app_id == app_id,
+                ChannelSession.channel_name == channel_name,
+                ChannelSession.channel_session_id.like('%_provisional')
+            ).all()
+            
+            if provisional_sessions:
+                logger.info(f"Found {len(provisional_sessions)} provisional sessions to merge for channel {channel_name}")
+                
+                for session in provisional_sessions:
+                    old_session_id = session.channel_session_id
+                    session.channel_session_id = correct_session_id
+                    session.updated_at = datetime.utcnow()
+                    logger.info(f"Merged provisional session {session.id} (UID {session.uid}) from {old_session_id} to {correct_session_id}")
+                
+                self.db.commit()
+                logger.info(f"Successfully merged {len(provisional_sessions)} provisional sessions")
+            else:
+                logger.debug(f"No provisional sessions found for channel {channel_name}")
+                
+        except Exception as e:
+            logger.error(f"Error merging provisional sessions for {app_id}/{channel_name}: {e}")
+            self.db.rollback()
 
     async def _process_event_by_type(self, app_id: str, webhook_data: WebhookRequest, channel_session_id: str = None):
         """Process webhook event based on its type"""
@@ -203,6 +236,14 @@ class WebhookProcessor:
             # Store raw webhook event (automatically creates tables if they don't exist)
             await self._store_webhook_event(app_id, webhook_data, raw_payload, channel_session_id)
             
+            # Log unknown values for future mapping
+            log_unknown_values(
+                webhook_data.payload.platform,
+                webhook_data.productId,
+                webhook_data.eventType,
+                webhook_data.payload.channelName
+            )
+            
             # Process based on event type
             await self._process_event_by_type(app_id, webhook_data, channel_session_id)
             
@@ -231,6 +272,7 @@ class WebhookProcessor:
             client_seq=webhook_data.payload.clientSeq or 0,  # Default to 0 if clientSeq is None
             platform=webhook_data.payload.platform,
             reason=webhook_data.payload.reason,
+            client_type=webhook_data.payload.clientType,
             ts=webhook_data.payload.ts,
             duration=webhook_data.payload.duration,
             channel_session_id=channel_session_id,
@@ -279,7 +321,11 @@ class WebhookProcessor:
                 channel_name=channel_name,
                 channel_session_id=channel_session_id,
                 uid=uid,
-                join_time=join_time
+                join_time=join_time,
+                product_id=webhook_data.productId,
+                platform=webhook_data.payload.platform,
+                reason=webhook_data.payload.reason,
+                client_type=webhook_data.payload.clientType
             )
             self.db.add(session)
             logger.info(f"Created new session for user {uid} in channel {channel_name} (epoch: {channel_session_id})")
@@ -313,8 +359,10 @@ class WebhookProcessor:
             
             session.leave_time = leave_time
             session.duration_seconds = int((leave_time - session.join_time).total_seconds())
+            # Update reason from leave event
+            session.reason = webhook_data.payload.reason
             session.updated_at = datetime.utcnow()
-            logger.info(f"Closed session for user {uid} with duration {session.duration_seconds} seconds")
+            logger.info(f"Closed session for user {uid} with duration {session.duration_seconds} seconds, reason: {session.reason}")
         else:
             # Create a session with duration from webhook payload if available
             if webhook_data.payload.duration:
@@ -326,7 +374,11 @@ class WebhookProcessor:
                     uid=uid,
                     join_time=join_time,
                     leave_time=leave_time,
-                    duration_seconds=webhook_data.payload.duration
+                    duration_seconds=webhook_data.payload.duration,
+                    product_id=webhook_data.productId,
+                    platform=webhook_data.payload.platform,
+                    reason=webhook_data.payload.reason,
+                    client_type=webhook_data.payload.clientType
                 )
                 self.db.add(session)
                 logger.info(f"Created session from leave event for user {uid} with duration {webhook_data.payload.duration} seconds")

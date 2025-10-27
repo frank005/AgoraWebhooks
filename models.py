@@ -14,6 +14,7 @@ class WebhookPayload(BaseModel):
     platform: Optional[int] = None
     reason: Optional[int] = None
     duration: Optional[int] = None
+    clientType: Optional[int] = None
 
 class WebhookRequest(BaseModel):
     """Pydantic model for complete Agora webhook request"""
@@ -34,6 +35,10 @@ class ChannelSessionResponse(BaseModel):
     leave_time: Optional[datetime]
     duration_seconds: Optional[int]
     duration_minutes: Optional[float]
+    product_id: Optional[int]
+    platform: Optional[int]
+    reason: Optional[int]
+    client_type: Optional[int]
 
 class ChannelMetricsResponse(BaseModel):
     """Response model for channel metrics"""

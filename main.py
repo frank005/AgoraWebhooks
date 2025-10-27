@@ -187,7 +187,11 @@ async def get_channel_details(app_id: str, channel_name: str, session_id: str = 
                 join_time=session.join_time,
                 leave_time=session.leave_time,
                 duration_seconds=session.duration_seconds,
-                duration_minutes=session.duration_seconds / 60.0 if session.duration_seconds else None
+                duration_minutes=session.duration_seconds / 60.0 if session.duration_seconds else None,
+                product_id=session.product_id,
+                platform=session.platform,
+                reason=session.reason,
+                client_type=session.client_type
             ))
         
         # Calculate total metrics

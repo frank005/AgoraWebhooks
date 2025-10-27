@@ -25,6 +25,7 @@ class WebhookEvent(Base):
     client_seq = Column(Integer, nullable=False)
     platform = Column(Integer)
     reason = Column(Integer)
+    client_type = Column(Integer)
     ts = Column(Integer, nullable=False, index=True)  # Unix timestamp
     duration = Column(Integer)  # Duration in seconds
     
@@ -61,6 +62,12 @@ class ChannelSession(Base):
     
     # Per-user ordering (for clientSeq)
     last_client_seq = Column(Integer, nullable=True)  # Last clientSeq processed for this user
+    
+    # Additional fields from webhook
+    product_id = Column(Integer, nullable=True)
+    platform = Column(Integer, nullable=True)
+    reason = Column(Integer, nullable=True)
+    client_type = Column(Integer, nullable=True)
     
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow)
