@@ -67,3 +67,17 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+
+# Binary packages and installers
+*.deb
+*.rpm
+*.dmg
+*.pkg
+
+# Test data and sample files
+sample_*.txt
+test_data/
+test_samples/
+
+# Old/unused files
+old/
