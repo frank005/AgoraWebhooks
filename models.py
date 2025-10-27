@@ -21,6 +21,7 @@ class WebhookRequest(BaseModel):
     productId: int
     eventType: int
     notifyMs: Optional[int] = None  # Timestamp when notification was sent
+    sid: Optional[str] = None  # Session ID from Agora
     payload: WebhookPayload
 
 class ChannelSessionResponse(BaseModel):
@@ -55,10 +56,12 @@ class UserMetricsResponse(BaseModel):
 class ChannelListResponse(BaseModel):
     """Response model for channel list with basic info"""
     channel_name: str
+    display_name: str
     channel_session_id: Optional[str]
     total_minutes: float
     unique_users: int
-    last_activity: datetime
+    first_activity: Optional[datetime]
+    last_activity: Optional[datetime]
 
 class ChannelDetailResponse(BaseModel):
     """Response model for detailed channel information"""

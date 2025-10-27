@@ -59,6 +59,9 @@ class ChannelSession(Base):
     leave_time = Column(DateTime, nullable=True, index=True)
     duration_seconds = Column(Integer, nullable=True)  # Calculated duration
     
+    # Per-user ordering (for clientSeq)
+    last_client_seq = Column(Integer, nullable=True)  # Last clientSeq processed for this user
+    
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -84,13 +87,17 @@ class ChannelMetrics(Base):
     total_minutes = Column(Float, default=0.0)
     unique_users = Column(Integer, default=0)
     
+    # Activity tracking
+    first_activity = Column(DateTime, nullable=True)
+    last_activity = Column(DateTime, nullable=True)
+    
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Unique constraint
     __table_args__ = (
-        Index('idx_app_channel_date', 'app_id', 'channel_name', 'date', unique=True),
+        Index('idx_app_channel_session_date', 'app_id', 'channel_name', 'channel_session_id', 'date', unique=True),
     )
 
 class UserMetrics(Base):

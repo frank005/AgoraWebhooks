@@ -84,40 +84,70 @@ async def web_interface(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 @app.get("/api/channels/{app_id}")
-async def get_channels(app_id: str, db: Session = Depends(get_db)):
-    """Get list of channels for an App ID"""
+async def get_channels(app_id: str, page: int = 1, per_page: int = 30, db: Session = Depends(get_db)):
+    """Get list of channels for an App ID with pagination"""
     try:
-        # Get channel metrics aggregated by channel session
-        channel_metrics = db.query(
-            ChannelMetrics.channel_name,
-            ChannelMetrics.channel_session_id,
-            func.sum(ChannelMetrics.total_minutes).label('total_minutes'),
-            func.max(ChannelMetrics.unique_users).label('unique_users'),
-            func.max(ChannelMetrics.updated_at).label('last_activity')
+        # Calculate total count using subquery
+        subquery = db.query(
+            ChannelSession.channel_name,
+            ChannelSession.channel_session_id
         ).filter(
-            ChannelMetrics.app_id == app_id
-        ).group_by(ChannelMetrics.channel_name, ChannelMetrics.channel_session_id).order_by(desc('last_activity')).all()
+            ChannelSession.app_id == app_id,
+            ChannelSession.duration_seconds.isnot(None)  # Only include completed sessions
+        ).group_by(ChannelSession.channel_name, ChannelSession.channel_session_id).subquery()
+        
+        total_count = db.query(func.count()).select_from(subquery).scalar()
+        
+        # Calculate offset for pagination
+        offset = (page - 1) * per_page
+        
+        # Calculate metrics directly from channel sessions to ensure accuracy
+        channel_sessions = db.query(
+            ChannelSession.channel_name,
+            ChannelSession.channel_session_id,
+            func.sum(ChannelSession.duration_seconds).label('total_seconds'),
+            func.count(func.distinct(ChannelSession.uid)).label('unique_users'),
+            func.min(ChannelSession.join_time).label('first_activity'),
+            func.max(ChannelSession.leave_time).label('last_activity')
+        ).filter(
+            ChannelSession.app_id == app_id,
+            ChannelSession.duration_seconds.isnot(None)  # Only include completed sessions
+        ).group_by(ChannelSession.channel_name, ChannelSession.channel_session_id).order_by(desc('last_activity')).offset(offset).limit(per_page).all()
         
         channels = []
-        for metric in channel_metrics:
-            # Create a display name that includes session info if there are multiple sessions
-            display_name = metric.channel_name
-            if metric.channel_session_id:
-                # Extract session number from session ID (last part after underscore)
-                session_parts = metric.channel_session_id.split('_')
-                if len(session_parts) > 2:
-                    session_num = session_parts[-1]
-                    display_name = f"{metric.channel_name} (Session {session_num})"
+        for session in channel_sessions:
+            # Keep channel name simple - no time ranges in the name
+            display_name = session.channel_name
+            
+            # Convert seconds to minutes
+            total_minutes = (session.total_seconds or 0) / 60.0
             
             channels.append(ChannelListResponse(
-                channel_name=display_name,
-                channel_session_id=metric.channel_session_id,
-                total_minutes=float(metric.total_minutes or 0),
-                unique_users=metric.unique_users or 0,
-                last_activity=metric.last_activity
+                channel_name=session.channel_name,
+                display_name=display_name,
+                channel_session_id=session.channel_session_id,
+                total_minutes=float(total_minutes),
+                unique_users=session.unique_users or 0,
+                first_activity=session.first_activity,
+                last_activity=session.last_activity
             ))
         
-        return {"channels": channels}
+        # Calculate pagination info
+        total_pages = (total_count + per_page - 1) // per_page
+        has_next = page < total_pages
+        has_prev = page > 1
+        
+        return {
+            "channels": channels,
+            "pagination": {
+                "page": page,
+                "per_page": per_page,
+                "total": total_count,
+                "total_pages": total_pages,
+                "has_next": has_next,
+                "has_prev": has_prev
+            }
+        }
         
     except Exception as e:
         logger.error(f"Error getting channels for app_id {app_id}: {e}")
@@ -135,6 +165,15 @@ async def get_channel_details(app_id: str, channel_name: str, session_id: str = 
         
         if session_id:
             query = query.filter(ChannelSession.channel_session_id == session_id)
+        else:
+            # If no session_id specified, get the most recent channel session
+            latest_channel_session = db.query(ChannelSession.channel_session_id).filter(
+                ChannelSession.app_id == app_id,
+                ChannelSession.channel_name == channel_name
+            ).order_by(desc(ChannelSession.join_time)).first()
+            
+            if latest_channel_session:
+                query = query.filter(ChannelSession.channel_session_id == latest_channel_session.channel_session_id)
         
         sessions = query.order_by(desc(ChannelSession.join_time)).limit(1000).all()  # Limit to prevent huge responses
         
@@ -226,21 +265,12 @@ if __name__ == "__main__":
     import os
     os.makedirs("templates", exist_ok=True)
     
-    # SSL configuration
-    ssl_kwargs = {}
-    if Config.SSL_CERT_PATH and Config.SSL_KEY_PATH:
-        ssl_kwargs = {
-            "ssl_certfile": Config.SSL_CERT_PATH,
-            "ssl_keyfile": Config.SSL_KEY_PATH
-        }
-        logger.info(f"Starting server with SSL on {Config.HOST}:{Config.PORT}")
-    else:
-        logger.info(f"Starting server without SSL on {Config.HOST}:{Config.PORT}")
+    # Start HTTP server (no SSL for now)
+    logger.info(f"Starting server on {Config.HOST}:{Config.PORT}")
     
     uvicorn.run(
         "main:app",
         host=Config.HOST,
         port=Config.PORT,
-        reload=False,
-        **ssl_kwargs
+        reload=False
     )

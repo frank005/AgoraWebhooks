@@ -126,9 +126,21 @@
         
         .channels-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            grid-template-columns: repeat(3, 1fr);
             gap: 20px;
             margin-bottom: 30px;
+        }
+        
+        @media (max-width: 1200px) {
+            .channels-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .channels-grid {
+                grid-template-columns: 1fr;
+            }
         }
         
         .channel-card {
@@ -229,6 +241,47 @@
             padding: 40px;
             color: #666;
         }
+        
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-top: 30px;
+            padding: 20px;
+        }
+        
+        .pagination button {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            color: #495057;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .pagination button:hover:not(:disabled) {
+            background: #e9ecef;
+            border-color: #adb5bd;
+        }
+        
+        .pagination button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .pagination .current-page {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+        
+        .pagination-info {
+            color: #666;
+            font-size: 14px;
+            margin: 0 10px;
+        }
     </style>
 </head>
 <body>
@@ -257,6 +310,11 @@
             <div id="channels-view">
                 <h2>Channels</h2>
                 <div class="channels-grid" id="channels-grid"></div>
+                <div class="pagination" id="pagination" style="display: none;">
+                    <button id="prev-page" onclick="changePage(-1)">← Previous</button>
+                    <div class="pagination-info" id="pagination-info"></div>
+                    <button id="next-page" onclick="changePage(1)">Next →</button>
+                </div>
             </div>
             
             <div class="channel-details" id="channel-details">
@@ -269,8 +327,10 @@
 
     <script>
         let currentAppId = '';
+        let currentPage = 1;
+        let paginationData = null;
         
-        async function loadChannels() {
+        async function loadChannels(page = 1) {
             const appId = document.getElementById('appId').value.trim();
             if (!appId) {
                 showError('Please enter an App ID');
@@ -278,17 +338,20 @@
             }
             
             currentAppId = appId;
+            currentPage = page;
             showLoading();
             hideError();
             
             try {
-                const response = await fetch(`/api/channels/${appId}`);
+                const response = await fetch(`/api/channels/${appId}?page=${page}&per_page=30`);
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
                 
                 const data = await response.json();
+                paginationData = data.pagination;
                 displayChannels(data.channels);
+                updatePagination();
                 
             } catch (error) {
                 showError(`Failed to load channels: ${error.message}`);
@@ -307,7 +370,7 @@
             } else {
                 const channelHTML = channels.map(channel => `
                     <div class="channel-card" onclick="loadChannelDetails('${channel.channel_name}', '${channel.channel_session_id || ''}')">
-                        <div class="channel-name">${channel.channel_name}</div>
+                        <div class="channel-name">${channel.display_name}</div>
                         <div class="channel-stats">
                             <div class="stat">
                                 <div class="stat-value">${channel.total_minutes.toFixed(1)}</div>
@@ -319,7 +382,14 @@
                             </div>
                         </div>
                         <div style="font-size: 0.9rem; color: #666; margin-top: 10px;">
-                            Last activity: ${new Date(channel.last_activity).toLocaleString()}
+                            ${channel.first_activity && channel.last_activity ? 
+                                `${new Date(channel.first_activity).toLocaleString()} - ${new Date(channel.last_activity).toLocaleString()}` :
+                                channel.first_activity ? 
+                                    `Started: ${new Date(channel.first_activity).toLocaleString()}` :
+                                    channel.last_activity ? 
+                                        `Ended: ${new Date(channel.last_activity).toLocaleString()}` :
+                                        'No activity data'
+                            }
                         </div>
                     </div>
                 `).join('');
@@ -328,6 +398,38 @@
             }
             
             showResults();
+        }
+        
+        function updatePagination() {
+            const paginationDiv = document.getElementById('pagination');
+            const prevButton = document.getElementById('prev-page');
+            const nextButton = document.getElementById('next-page');
+            const paginationInfo = document.getElementById('pagination-info');
+            
+            if (!paginationData || paginationData.total_pages <= 1) {
+                paginationDiv.style.display = 'none';
+                return;
+            }
+            
+            paginationDiv.style.display = 'flex';
+            
+            // Update button states
+            prevButton.disabled = !paginationData.has_prev;
+            nextButton.disabled = !paginationData.has_next;
+            
+            // Update pagination info
+            const startItem = (paginationData.page - 1) * paginationData.per_page + 1;
+            const endItem = Math.min(paginationData.page * paginationData.per_page, paginationData.total);
+            paginationInfo.textContent = `Page ${paginationData.page} of ${paginationData.total_pages} (${startItem}-${endItem} of ${paginationData.total})`;
+        }
+        
+        function changePage(direction) {
+            if (!paginationData) return;
+            
+            const newPage = currentPage + direction;
+            if (newPage >= 1 && newPage <= paginationData.total_pages) {
+                loadChannels(newPage);
+            }
         }
         
         async function loadChannelDetails(channelName, sessionId = null) {
