@@ -68,7 +68,7 @@ async def receive_webhook(app_id: str, request: Request):
         # Process webhook asynchronously
         await webhook_processor.process_webhook(app_id, webhook_data, body.decode('utf-8'))
         
-        logger.info(f"Webhook processed successfully for app_id: {app_id}, event_type: {webhook_data.eventType}, from: {client_ip}")
+        logger.info(f"Webhook processed successfully for app_id: {app_id}, event_type: {webhook_data.eventType}, product_id: {webhook_data.productId}, platform: {webhook_data.payload.platform}, reason: {webhook_data.payload.reason}, from: {client_ip}")
         return JSONResponse(content={"status": "success", "message": "Webhook processed"})
         
     except HTTPException as he:

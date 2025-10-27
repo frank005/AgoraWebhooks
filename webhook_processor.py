@@ -195,7 +195,7 @@ class WebhookProcessor:
         }
         
         event_name = event_names.get(event_type, f"Unknown Event {event_type}")
-        logger.info(f"Processing {event_name} for user {uid} in channel {webhook_data.payload.channelName}")
+        logger.info(f"Processing {event_name} for user {uid} in channel {webhook_data.payload.channelName}, Product ID: {webhook_data.productId}, Platform: {webhook_data.payload.platform}, Reason: {webhook_data.payload.reason}")
         
         # Handle user events that require uid and clientSeq
         if uid is not None and client_seq is not None:
@@ -220,7 +220,7 @@ class WebhookProcessor:
     async def process_webhook(self, app_id: str, webhook_data: WebhookRequest, raw_payload: str):
         """Process a webhook event and update relevant tables for the specific App ID"""
         try:
-            logger.info(f"Processing webhook for App ID: {app_id}, Event Type: {webhook_data.eventType}, Notice ID: {webhook_data.noticeId}")
+            logger.info(f"Processing webhook for App ID: {app_id}, Event Type: {webhook_data.eventType}, Notice ID: {webhook_data.noticeId}, Product ID: {webhook_data.productId}, Platform: {webhook_data.payload.platform}, Reason: {webhook_data.payload.reason}")
             
             # Check for duplicates using in-memory cache
             if self._is_duplicate_webhook(webhook_data.noticeId):
@@ -251,7 +251,7 @@ class WebhookProcessor:
             await self._update_metrics(app_id, webhook_data, channel_session_id)
             
             self.db.commit()
-            logger.info(f"Successfully processed webhook for App ID: {app_id}, Event Type: {webhook_data.eventType}")
+            logger.info(f"Successfully processed webhook for App ID: {app_id}, Event Type: {webhook_data.eventType}, Product ID: {webhook_data.productId}, Platform: {webhook_data.payload.platform}, Reason: {webhook_data.payload.reason}")
             
         except Exception as e:
             self.db.rollback()
@@ -308,12 +308,12 @@ class WebhookProcessor:
                 logger.warning(f"Out-of-order join event detected for user {uid}. Existing session starts at {existing_session.join_time}, new event at {join_time}")
                 existing_session.join_time = join_time
                 existing_session.updated_at = datetime.utcnow()
-                logger.info(f"Updated existing session with earlier join time for user {uid}")
+                logger.info(f"Updated existing session with earlier join time for user {uid}, Product ID: {webhook_data.productId}, Platform: {webhook_data.payload.platform}, Reason: {webhook_data.payload.reason}")
             else:
                 # Update existing session join time (reconnection)
                 existing_session.join_time = join_time
                 existing_session.updated_at = datetime.utcnow()
-                logger.info(f"Updated existing session join time for user {uid}")
+                logger.info(f"Updated existing session join time for user {uid}, Product ID: {webhook_data.productId}, Platform: {webhook_data.payload.platform}, Reason: {webhook_data.payload.reason}")
         else:
             # Create new session
             session = ChannelSession(
@@ -328,7 +328,7 @@ class WebhookProcessor:
                 client_type=webhook_data.payload.clientType
             )
             self.db.add(session)
-            logger.info(f"Created new session for user {uid} in channel {channel_name} (epoch: {channel_session_id})")
+            logger.info(f"Created new session for user {uid} in channel {channel_name} (epoch: {channel_session_id}), Product ID: {webhook_data.productId}, Platform: {webhook_data.payload.platform}, Reason: {webhook_data.payload.reason}")
         
         # Update lastClientSeq for this user
         if existing_session:
@@ -362,7 +362,7 @@ class WebhookProcessor:
             # Update reason from leave event
             session.reason = webhook_data.payload.reason
             session.updated_at = datetime.utcnow()
-            logger.info(f"Closed session for user {uid} with duration {session.duration_seconds} seconds, reason: {session.reason}")
+            logger.info(f"Closed session for user {uid} with duration {session.duration_seconds} seconds, reason: {session.reason}, Product ID: {webhook_data.productId}, Platform: {webhook_data.payload.platform}")
         else:
             # Create a session with duration from webhook payload if available
             if webhook_data.payload.duration:
@@ -381,7 +381,7 @@ class WebhookProcessor:
                     client_type=webhook_data.payload.clientType
                 )
                 self.db.add(session)
-                logger.info(f"Created session from leave event for user {uid} with duration {webhook_data.payload.duration} seconds")
+                logger.info(f"Created session from leave event for user {uid} with duration {webhook_data.payload.duration} seconds, Product ID: {webhook_data.productId}, Platform: {webhook_data.payload.platform}, Reason: {webhook_data.payload.reason}")
             else:
                 logger.warning(f"No open session found for user {uid} leave event and no duration provided")
 
@@ -393,7 +393,7 @@ class WebhookProcessor:
         ts = datetime.fromtimestamp(webhook_data.payload.ts)
         
         role_change_type = "Broadcaster" if event_type == 111 else "Audience"
-        logger.info(f"Role change event: User {uid} changed to {role_change_type} in channel {channel_name} at {ts}")
+        logger.info(f"Role change event: User {uid} changed to {role_change_type} in channel {channel_name} at {ts}, Product ID: {webhook_data.productId}, Platform: {webhook_data.payload.platform}, Reason: {webhook_data.payload.reason}")
         
         # For role changes, we don't create new sessions, just log the event
         # The user is already in the channel, just changing their role
