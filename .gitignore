@@ -79,11 +79,8 @@ sample_*.txt
 test_data/
 test_samples/
 
-# Old/unused files (but keep test files)
-old/*.deb
-old/sample_*.txt
-old/start_*.sh
-old/requirements-*.txt
+# Old/unused files - block everything in old/ folder from git
+old/
 
 # Backups
 backups/
