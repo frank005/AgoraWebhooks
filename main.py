@@ -1,11 +1,11 @@
 import asyncio
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException, Depends, Form
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
@@ -13,9 +13,10 @@ from sqlalchemy import func, desc
 import uvicorn
 
 from config import Config
-from database import get_db, create_tables, ChannelSession, ChannelMetrics, UserMetrics
-from models import WebhookRequest, ChannelSessionResponse, ChannelMetricsResponse, UserMetricsResponse, ChannelListResponse, ChannelDetailResponse
+from database import get_db, create_tables, ChannelSession, ChannelMetrics, UserMetrics, WebhookEvent
+from models import WebhookRequest, ChannelSessionResponse, ChannelMetricsResponse, UserMetricsResponse, ChannelListResponse, ChannelDetailResponse, ExportRequest, ExportResponse
 from webhook_processor import WebhookProcessor
+from export_service import ExportService
 
 # Configure logging
 logging.basicConfig(
@@ -263,6 +264,108 @@ async def debug_cache():
     except Exception as e:
         logger.error(f"Error getting cache stats: {e}")
         return {"error": "Failed to get cache stats"}
+
+@app.post("/api/export/{app_id}")
+async def export_data(app_id: str, request: ExportRequest, db: Session = Depends(get_db)):
+    """Export data for a specific App ID with optional filters"""
+    try:
+        # Set the app_id from the URL path
+        request.app_id = app_id
+        
+        # Parse string dates to datetime objects if they're strings
+        if isinstance(request.start_date, str):
+            request.start_date = datetime.fromisoformat(request.start_date.replace('Z', '+00:00'))
+        if isinstance(request.end_date, str):
+            request.end_date = datetime.fromisoformat(request.end_date.replace('Z', '+00:00'))
+        
+        # Validate request
+        if not request.start_date and not request.end_date:
+            # Default to last 7 days if no date range provided
+            request.start_date = datetime.utcnow() - timedelta(days=7)
+            request.end_date = datetime.utcnow()
+        
+        # Create export service
+        export_service = ExportService(db)
+        
+        # Generate export
+        export_result = export_service.export_data(request)
+        
+        logger.info(f"Export completed for app_id {app_id}: {export_result.get('export_info', {}).get('total_records', 0)} records")
+        
+        # Handle CSV export (zip file)
+        if request.format.lower() == "csv" and "zip_file" in export_result:
+            zip_data = export_result["zip_file"]
+            filename = f"agora_export_{app_id}_{request.start_date.strftime('%Y%m%d')}_to_{request.end_date.strftime('%Y%m%d')}.zip"
+            total_records = export_result.get('export_info', {}).get('total_records', 0)
+            return Response(
+                content=zip_data,
+                media_type="application/zip",
+                headers={
+                    "Content-Disposition": f"attachment; filename={filename}",
+                    "X-Total-Records": str(total_records)
+                }
+            )
+        
+        # Handle JSON export
+        return export_result
+        
+    except ValueError as e:
+        logger.error(f"Export validation error for app_id {app_id}: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error exporting data for app_id {app_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/api/export/{app_id}/channels")
+async def get_export_channels(app_id: str, db: Session = Depends(get_db)):
+    """Get list of channels available for export for a specific App ID"""
+    try:
+        # Get unique channels for the app
+        channels = db.query(ChannelSession.channel_name).filter(
+            ChannelSession.app_id == app_id
+        ).distinct().all()
+        
+        channel_list = [{"channel_name": channel[0]} for channel in channels]
+        
+        return {
+            "app_id": app_id,
+            "channels": channel_list,
+            "total_channels": len(channel_list)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting export channels for app_id {app_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/api/export/{app_id}/date-range")
+async def get_export_date_range(app_id: str, db: Session = Depends(get_db)):
+    """Get available date range for export for a specific App ID"""
+    try:
+        # Get date range from webhook events
+        date_range = db.query(
+            func.min(WebhookEvent.received_at).label('earliest'),
+            func.max(WebhookEvent.received_at).label('latest')
+        ).filter(WebhookEvent.app_id == app_id).first()
+        
+        if not date_range or not date_range.earliest:
+            return {
+                "app_id": app_id,
+                "earliest_date": None,
+                "latest_date": None,
+                "message": "No data available for export"
+            }
+        
+        return {
+            "app_id": app_id,
+            "earliest_date": date_range.earliest.isoformat(),
+            "latest_date": date_range.latest.isoformat(),
+            "total_days": (date_range.latest - date_range.earliest).days + 1
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting export date range for app_id {app_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 
 if __name__ == "__main__":
     # Create templates directory if it doesn't exist

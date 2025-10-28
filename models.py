@@ -74,3 +74,25 @@ class ChannelDetailResponse(BaseModel):
     total_minutes: float
     unique_users: int
     sessions: List[ChannelSessionResponse]
+
+class ExportRequest(BaseModel):
+    """Request model for data export"""
+    app_id: str
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    channel_name: Optional[str] = None
+    format: str = "json"  # "json" or "csv"
+    include_webhook_events: bool = True
+    include_sessions: bool = True
+    include_metrics: bool = True
+
+class ExportResponse(BaseModel):
+    """Response model for export data"""
+    export_id: str
+    total_records: int
+    webhook_events_count: int
+    sessions_count: int
+    metrics_count: int
+    date_range: str
+    channel_filter: Optional[str] = None
+    created_at: datetime

@@ -308,6 +308,7 @@
             font-size: 14px;
             margin: 0 10px;
         }
+        
     </style>
 </head>
 <body>
@@ -322,7 +323,66 @@
                 <label for="appId">App ID</label>
                 <input type="text" id="appId" placeholder="Enter your Agora App ID (e.g., 34f8sd9v)" />
             </div>
-            <button class="btn" onclick="loadChannels()">Load Channels</button>
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button class="btn" onclick="loadChannels()">Load Channels</button>
+                <button class="btn" onclick="showExportSection()" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%);">Export Data</button>
+            </div>
+        </div>
+        
+        <div class="search-section" id="export-section" style="display: none;">
+            <h3 style="margin-bottom: 10px; color: #333;">Export Data</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 10px;">
+                <div class="form-group" style="margin-bottom: 5px;">
+                    <label for="exportAppId" style="font-size: 0.9rem; margin-bottom: 2px;">App ID</label>
+                    <input type="text" id="exportAppId" placeholder="Enter your Agora App ID" style="padding: 5px 8px; font-size: 0.9rem;" />
+                    <small style="color: #666; font-size: 0.8rem;">Enter the same App ID you used to view channels</small>
+                </div>
+                <div class="form-group" style="margin-bottom: 5px;">
+                    <label for="exportChannel" style="font-size: 0.9rem; margin-bottom: 2px;">Channel Name (Optional)</label>
+                    <select id="exportChannel" style="padding: 5px 8px; font-size: 0.9rem;">
+                        <option value="">All Channels</option>
+                    </select>
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1fr; gap: 8px; margin-bottom: 10px;">
+                <div class="form-group" style="margin-bottom: 5px;">
+                    <label for="exportStartDate" style="font-size: 0.9rem; margin-bottom: 2px;">Start Date</label>
+                    <input type="date" id="exportStartDate" style="padding: 5px 8px; font-size: 0.9rem;" />
+                </div>
+                <div class="form-group" style="margin-bottom: 5px;">
+                    <label for="exportEndDate" style="font-size: 0.9rem; margin-bottom: 2px;">End Date</label>
+                    <input type="date" id="exportEndDate" style="padding: 5px 8px; font-size: 0.9rem;" />
+                </div>
+                <div class="form-group" style="margin-bottom: 5px;">
+                    <label for="exportFormat" style="font-size: 0.9rem; margin-bottom: 2px;">Format</label>
+                    <select id="exportFormat" style="padding: 5px 8px; font-size: 0.9rem;">
+                        <option value="json">JSON</option>
+                        <option value="csv">CSV</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom: 5px;">
+                    <label style="display: flex; align-items: center; gap: 4px; font-size: 0.85rem;">
+                        <input type="checkbox" id="includeWebhooks" checked />
+                        Webhook Events
+                    </label>
+                </div>
+                <div class="form-group" style="margin-bottom: 5px;">
+                    <label style="display: flex; align-items: center; gap: 4px; font-size: 0.85rem;">
+                        <input type="checkbox" id="includeSessions" checked />
+                        Sessions
+                    </label>
+                </div>
+                <div class="form-group" style="margin-bottom: 5px;">
+                    <label style="display: flex; align-items: center; gap: 4px; font-size: 0.85rem;">
+                        <input type="checkbox" id="includeMetrics" checked />
+                        Metrics
+                    </label>
+                </div>
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button class="btn" onclick="loadExportData()" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); padding: 6px 12px; font-size: 0.9rem;">Export Data</button>
+                <button class="btn" onclick="hideExportSection()" style="background: #6c757d; padding: 6px 12px; font-size: 0.9rem;">Cancel</button>
+            </div>
         </div>
         
         <div class="loading" id="loading">
@@ -683,6 +743,166 @@
         document.getElementById('appId').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
                 loadChannels();
+            }
+        });
+        
+        // Export functionality
+        function showExportSection() {
+            document.getElementById('export-section').style.display = 'block';
+            // Copy current app ID to export form if available
+            const currentAppId = document.getElementById('appId').value;
+            if (currentAppId) {
+                document.getElementById('exportAppId').value = currentAppId;
+                loadExportChannels(currentAppId);
+            }
+            // Set default date range (today)
+            const today = new Date();
+            document.getElementById('exportEndDate').value = today.toISOString().split('T')[0];
+            document.getElementById('exportStartDate').value = today.toISOString().split('T')[0];
+        }
+        
+        function hideExportSection() {
+            document.getElementById('export-section').style.display = 'none';
+        }
+        
+        async function loadExportChannels(appId) {
+            if (!appId) return;
+            
+            try {
+                const response = await fetch(`/api/export/${appId}/channels`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                const channelSelect = document.getElementById('exportChannel');
+                channelSelect.innerHTML = '<option value="">All Channels</option>';
+                
+                data.channels.forEach(channel => {
+                    const option = document.createElement('option');
+                    option.value = channel.channel_name;
+                    option.textContent = channel.channel_name;
+                    channelSelect.appendChild(option);
+                });
+                
+            } catch (error) {
+                console.error('Error loading export channels:', error);
+            }
+        }
+        
+        async function loadExportData() {
+            const appId = document.getElementById('exportAppId').value.trim();
+            if (!appId) {
+                showError('Please enter an App ID for export');
+                return;
+            }
+            
+            const startDate = document.getElementById('exportStartDate').value;
+            const endDate = document.getElementById('exportEndDate').value;
+            const channelName = document.getElementById('exportChannel').value;
+            const format = document.getElementById('exportFormat').value;
+            const includeWebhooks = document.getElementById('includeWebhooks').checked;
+            const includeSessions = document.getElementById('includeSessions').checked;
+            const includeMetrics = document.getElementById('includeMetrics') ? document.getElementById('includeMetrics').checked : true;
+            
+            if (!startDate || !endDate) {
+                showError('Please select both start and end dates');
+                return;
+            }
+            
+            // Validate date range (max 30 days)
+            const start = new Date(startDate);
+            const end = new Date(endDate);
+            const diffTime = Math.abs(end - start);
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            
+            if (diffDays > 30) {
+                showError('Date range cannot exceed 30 days');
+                return;
+            }
+            
+            showLoading();
+            hideError();
+            
+            try {
+                const exportRequest = {
+                    app_id: appId,
+                    start_date: startDate + 'T00:00:00Z',
+                    end_date: endDate + 'T23:59:59Z',
+                    channel_name: channelName || null,
+                    format: format,
+                    include_webhook_events: includeWebhooks,
+                    include_sessions: includeSessions,
+                    include_metrics: includeMetrics
+                };
+                
+                const response = await fetch(`/api/export/${appId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(exportRequest)
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                if (format === 'csv') {
+                    // Handle CSV export - download zip file
+                    const blob = await response.blob();
+                    const filename = `agora_export_${appId}_${startDate}_to_${endDate}.zip`;
+                    downloadFile(blob, filename);
+                    
+                    // Get record count from response headers or estimate
+                    const recordCount = response.headers.get('X-Total-Records') || 'multiple files';
+                    hideExportSection();
+                    showError(`Export completed! ${recordCount} records exported as ZIP file.`);
+                } else {
+                    // Handle JSON export - download single file
+                    const data = await response.json();
+                    downloadJSONFile(data, appId, startDate, endDate);
+                    
+                    hideExportSection();
+                    showError(`Export completed! ${data.export_info ? data.export_info.total_records : 0} records exported.`);
+                }
+                
+            } catch (error) {
+                showError(`Export failed: ${error.message}`);
+            } finally {
+                hideLoading();
+            }
+        }
+        
+        function downloadJSONFile(data, appId, startDate, endDate) {
+            const filename = `agora_export_${appId}_${startDate}_to_${endDate}.json`;
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            downloadFile(blob, filename);
+        }
+        
+        // CSV files are now downloaded as a single ZIP file
+        
+        function downloadFile(blob, filename) {
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        }
+        
+        // Auto-load channels when app ID changes in export form
+        document.getElementById('exportAppId').addEventListener('input', function(e) {
+            const appId = e.target.value.trim();
+            if (appId) {
+                loadExportChannels(appId);
+            } else {
+                // Clear channels if no app ID
+                const channelSelect = document.getElementById('exportChannel');
+                channelSelect.innerHTML = '<option value="">All Channels</option>';
             }
         });
     </script>
