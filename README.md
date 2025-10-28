@@ -17,6 +17,8 @@ A comprehensive Python-based webhook server for receiving and processing Agora v
 - **Interactive Search**: Search channels by name with pagination
 - **Detailed Views**: Comprehensive channel and user session details
 - **Mobile Responsive**: Works perfectly on desktop and mobile devices
+- **Shareable Links**: Permalink functionality for sharing specific channels with team members
+- **Visual Channel Flags**: Color-coded indicators showing client types (Cloud Recording, Media Push/Pull, Conversational AI, etc.)
 
 ### Data Management
 - **SQLite Database**: Lightweight, file-based database for easy deployment
@@ -156,6 +158,7 @@ curl -X POST https://your-domain.com/your-app-id/webhooks \
 ### Web Interface
 
 - `GET /` - Main dashboard interface with search and analytics
+- `GET /?appId={app_id}&channel={channel_name}&sessionId={session_id}` - Direct channel view with permalink support
 
 ## 🗄️ Database Schema
 
@@ -178,6 +181,28 @@ curl -X POST https://your-domain.com/your-app-id/webhooks \
    - Cross-channel user activity tracking
 
 ## 🔍 Advanced Features
+
+### Permalink Functionality
+- **Shareable URLs**: Direct links to specific channels and sessions
+- **URL Parameters**: Support for `?appId={app_id}&channel={channel_name}&sessionId={session_id}`
+- **Auto-navigation**: Automatically loads specified channels when visiting permalinks
+- **Share Button**: One-click URL copying with visual feedback
+- **Browser History**: Proper URL updates without page reloads
+
+### Visual Channel Flags
+- **Client Type Indicators**: Color-coded flags showing what types of clients were used
+- **Supported Types**:
+  - ☁️ **Cloud Recording** (red) - Client type 10
+  - ⬇️ **Media Pull** (blue) - Client type 28
+  - ⬆️ **Media Push** (green) - Client type 30
+  - 🤖 **Conversational AI** (purple) - Client type 60
+  - 🔄 **Media Relay** (orange) - Client type 43
+  - 🎤 **STT PubBot** (teal) - Client type 47
+  - 🎧 **STT SubBot** (teal) - Client type 48
+  - 🎙️ **Real-Time STT** (teal) - Client type 68
+  - 🌐 **Media Gateway** (gray) - Client type 50
+  - 📹 **Local Recording** (yellow) - Client type 3
+  - 📱 **Applets** (pink) - Client type 8
 
 ### Duplicate Prevention
 - **In-memory caching**: Fast detection of recent duplicate webhooks
@@ -348,6 +373,10 @@ For issues and questions:
 ## 🔄 Changelog
 
 ### Recent Updates
+- ✅ **Permalink Functionality**: Share specific channels with team members via direct URLs
+- ✅ **Visual Channel Flags**: Color-coded indicators for different client types (Cloud Recording, Media Push/Pull, Conversational AI, etc.)
+- ✅ **Enhanced Channel Display**: Improved channel cards with client type information and visual indicators
+- ✅ **Share Button**: One-click URL copying for easy channel sharing
 - ✅ Repository cleanup and organization
 - ✅ Advanced duplicate prevention system
 - ✅ Improved session tracking and correlation

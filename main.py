@@ -109,12 +109,23 @@ async def get_channels(app_id: str, page: int = 1, per_page: int = 30, db: Sessi
             func.sum(ChannelSession.duration_seconds).label('total_seconds'),
             func.count(func.distinct(ChannelSession.uid)).label('unique_users'),
             func.min(ChannelSession.join_time).label('first_activity'),
-            func.max(ChannelSession.leave_time).label('last_activity'),
-            func.array_agg(func.distinct(ChannelSession.client_type)).label('client_types')
+            func.max(ChannelSession.leave_time).label('last_activity')
         ).filter(
             ChannelSession.app_id == app_id,
             ChannelSession.duration_seconds.isnot(None)  # Only include completed sessions
         ).group_by(ChannelSession.channel_name, ChannelSession.channel_session_id).order_by(desc('last_activity')).offset(offset).limit(per_page).all()
+        
+        # Get client types for each channel session separately (SQLite compatible)
+        channel_client_types = {}
+        for session in channel_sessions:
+            key = (session.channel_name, session.channel_session_id)
+            client_types = db.query(ChannelSession.client_type).filter(
+                ChannelSession.app_id == app_id,
+                ChannelSession.channel_name == session.channel_name,
+                ChannelSession.channel_session_id == session.channel_session_id,
+                ChannelSession.client_type.isnot(None)
+            ).distinct().all()
+            channel_client_types[key] = [ct[0] for ct in client_types if ct[0] is not None]
         
         channels = []
         for session in channel_sessions:
@@ -124,8 +135,9 @@ async def get_channels(app_id: str, page: int = 1, per_page: int = 30, db: Sessi
             # Convert seconds to minutes
             total_minutes = (session.total_seconds or 0) / 60.0
             
-            # Filter out None values from client_types array
-            client_types = [ct for ct in (session.client_types or []) if ct is not None]
+            # Get client types for this channel session
+            key = (session.channel_name, session.channel_session_id)
+            client_types = channel_client_types.get(key, [])
             
             channels.append(ChannelListResponse(
                 channel_name=session.channel_name,
