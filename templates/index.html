@@ -309,6 +309,62 @@
             margin: 0 10px;
         }
         
+        /* Channel flags styling */
+        .channel-flags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-top: 8px;
+        }
+        
+        .channel-flag {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 6px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: white;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+        }
+        
+        .flag-cloud-recording {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+        }
+        
+        .flag-media-pull {
+            background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);
+        }
+        
+        .flag-media-push {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+        }
+        
+        .flag-conversational-ai {
+            background: linear-gradient(135deg, #6f42c1 0%, #5a32a3 100%);
+        }
+        
+        .flag-media-relay {
+            background: linear-gradient(135deg, #fd7e14 0%, #e55a00 100%);
+        }
+        
+        .flag-stt {
+            background: linear-gradient(135deg, #20c997 0%, #17a2b8 100%);
+        }
+        
+        .flag-media-gateway {
+            background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%);
+        }
+        
+        .flag-local-recording {
+            background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%);
+            color: #212529;
+        }
+        
+        .flag-applets {
+            background: linear-gradient(135deg, #e83e8c 0%, #d63384 100%);
+        }
+        
     </style>
 </head>
 <body>
@@ -415,6 +471,32 @@
         let currentAppId = '';
         let currentPage = 1;
         let paginationData = null;
+        let currentChannel = null;
+        let currentSessionId = null;
+        
+        // Initialize page from URL parameters
+        function initializeFromURL() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const appId = urlParams.get('appId');
+            const channel = urlParams.get('channel');
+            const sessionId = urlParams.get('sessionId');
+            const page = urlParams.get('page') || '1';
+            
+            if (appId) {
+                document.getElementById('appId').value = appId;
+                currentAppId = appId;
+                
+                if (channel) {
+                    currentChannel = channel;
+                    currentSessionId = sessionId;
+                    // Load channel details directly
+                    loadChannelDetails(channel, sessionId);
+                } else {
+                    // Load channels list
+                    loadChannels(parseInt(page));
+                }
+            }
+        }
         
         async function loadChannels(page = 1) {
             const appId = document.getElementById('appId').value.trim();
@@ -425,8 +507,13 @@
             
             currentAppId = appId;
             currentPage = page;
+            currentChannel = null;
+            currentSessionId = null;
             showLoading();
             hideError();
+            
+            // Update URL without page reload
+            updateURL(appId, null, null, page);
             
             try {
                 const response = await fetch(`/api/channels/${appId}?page=${page}&per_page=30`);
@@ -454,7 +541,11 @@
             if (channels.length === 0) {
                 grid.innerHTML = '<div class="no-data">No channels found for this App ID</div>';
             } else {
-                const channelHTML = channels.map(channel => `
+                const channelHTML = channels.map(channel => {
+                    // Generate flags based on client types
+                    const flags = generateChannelFlags(channel.client_types || []);
+                    
+                    return `
                     <div class="channel-card" onclick="loadChannelDetails('${channel.channel_name}', '${channel.channel_session_id || ''}')">
                         <div class="channel-name">${channel.display_name}</div>
                         <div class="channel-stats">
@@ -467,6 +558,7 @@
                                 <div class="stat-label">Users</div>
                             </div>
                         </div>
+                        ${flags}
                         <div style="font-size: 0.9rem; color: #666; margin-top: 10px;">
                             ${channel.first_activity && channel.last_activity ? 
                                 `${new Date(channel.first_activity).toLocaleString()} - ${new Date(channel.last_activity).toLocaleString()}` :
@@ -478,12 +570,43 @@
                             }
                         </div>
                     </div>
-                `).join('');
+                `;
+                }).join('');
                 console.log('Generated channel HTML:', channelHTML);
                 grid.innerHTML = channelHTML;
             }
             
             showResults();
+        }
+        
+        function generateChannelFlags(clientTypes) {
+            if (!clientTypes || clientTypes.length === 0) {
+                return '';
+            }
+            
+            const flagMappings = {
+                3: { class: 'flag-local-recording', text: '📹 Local Recording' },
+                8: { class: 'flag-applets', text: '📱 Applets' },
+                10: { class: 'flag-cloud-recording', text: '☁️ Cloud Recording' },
+                28: { class: 'flag-media-pull', text: '⬇️ Media Pull' },
+                30: { class: 'flag-media-push', text: '⬆️ Media Push' },
+                43: { class: 'flag-media-relay', text: '🔄 Media Relay' },
+                47: { class: 'flag-stt', text: '🎤 STT PubBot' },
+                48: { class: 'flag-stt', text: '🎧 STT SubBot' },
+                50: { class: 'flag-media-gateway', text: '🌐 Media Gateway' },
+                60: { class: 'flag-conversational-ai', text: '🤖 Conversational AI' },
+                68: { class: 'flag-stt', text: '🎙️ Real-Time STT' }
+            };
+            
+            const flags = clientTypes.map(clientType => {
+                const mapping = flagMappings[clientType];
+                if (mapping) {
+                    return `<span class="channel-flag ${mapping.class}">${mapping.text}</span>`;
+                }
+                return `<span class="channel-flag" style="background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%);">Type ${clientType}</span>`;
+            }).join('');
+            
+            return `<div class="channel-flags">${flags}</div>`;
         }
         
         function updatePagination() {
@@ -518,9 +641,58 @@
             }
         }
         
+        // Update URL without page reload
+        function updateURL(appId, channel = null, sessionId = null, page = 1) {
+            const url = new URL(window.location);
+            url.searchParams.set('appId', appId);
+            if (channel) {
+                url.searchParams.set('channel', channel);
+                if (sessionId) {
+                    url.searchParams.set('sessionId', sessionId);
+                } else {
+                    url.searchParams.delete('sessionId');
+                }
+            } else {
+                url.searchParams.delete('channel');
+                url.searchParams.delete('sessionId');
+            }
+            if (page > 1) {
+                url.searchParams.set('page', page);
+            } else {
+                url.searchParams.delete('page');
+            }
+            
+            // Update URL without reload
+            window.history.pushState({}, '', url);
+        }
+        
+        // Copy current URL to clipboard
+        function copyPermalink() {
+            const url = window.location.href;
+            navigator.clipboard.writeText(url).then(() => {
+                // Show a temporary success message
+                const button = event.target;
+                const originalText = button.textContent;
+                button.textContent = 'Copied!';
+                button.style.background = '#28a745';
+                setTimeout(() => {
+                    button.textContent = originalText;
+                    button.style.background = '';
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy URL:', err);
+                showError('Failed to copy URL to clipboard');
+            });
+        }
+        
         async function loadChannelDetails(channelName, sessionId = null) {
             console.log('loadChannelDetails called with channelName:', channelName, 'sessionId:', sessionId);
+            currentChannel = channelName;
+            currentSessionId = sessionId;
             showLoading();
+            
+            // Update URL
+            updateURL(currentAppId, channelName, sessionId, currentPage);
             
             try {
                 let url = `/api/channel/${currentAppId}/${encodeURIComponent(channelName)}`;
@@ -551,6 +723,26 @@
             console.log('displayChannelDetails called with data:', data);
             
             document.getElementById('channel-details-title').textContent = `Channel: ${data.channel_name}`;
+            
+            // Add share button to the channel details header
+            const channelDetails = document.getElementById('channel-details');
+            const existingShareButton = channelDetails.querySelector('.share-button-container');
+            if (!existingShareButton) {
+                const shareButtonContainer = document.createElement('div');
+                shareButtonContainer.className = 'share-button-container';
+                shareButtonContainer.style.cssText = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;';
+                
+                const backButton = channelDetails.querySelector('.back-btn');
+                const shareButton = document.createElement('button');
+                shareButton.className = 'btn';
+                shareButton.style.cssText = 'background: linear-gradient(135deg, #17a2b8 0%, #138496 100%); padding: 8px 16px; font-size: 0.9rem;';
+                shareButton.textContent = '📋 Share Link';
+                shareButton.onclick = copyPermalink;
+                
+                shareButtonContainer.appendChild(backButton.cloneNode(true));
+                shareButtonContainer.appendChild(shareButton);
+                backButton.parentNode.replaceChild(shareButtonContainer, backButton);
+            }
             
             const content = document.getElementById('channel-details-content');
             console.log('Content element found:', content);
@@ -679,6 +871,9 @@
         }
         
         function showChannelsView() {
+            currentChannel = null;
+            currentSessionId = null;
+            updateURL(currentAppId, null, null, currentPage);
             document.getElementById('channels-view').style.display = 'block';
             const channelDetails = document.getElementById('channel-details');
             channelDetails.style.display = 'none';
@@ -904,6 +1099,11 @@
                 const channelSelect = document.getElementById('exportChannel');
                 channelSelect.innerHTML = '<option value="">All Channels</option>';
             }
+        });
+        
+        // Initialize page from URL parameters when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeFromURL();
         });
     </script>
 </body>

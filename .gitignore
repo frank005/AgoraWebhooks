@@ -81,3 +81,6 @@ test_samples/
 
 # Old/unused files
 old/
+
+# Backups
+backups/

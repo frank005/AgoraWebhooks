@@ -67,6 +67,7 @@ class ChannelListResponse(BaseModel):
     unique_users: int
     first_activity: Optional[datetime]
     last_activity: Optional[datetime]
+    client_types: Optional[List[int]] = None
 
 class ChannelDetailResponse(BaseModel):
     """Response model for detailed channel information"""

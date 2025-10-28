@@ -109,7 +109,8 @@ async def get_channels(app_id: str, page: int = 1, per_page: int = 30, db: Sessi
             func.sum(ChannelSession.duration_seconds).label('total_seconds'),
             func.count(func.distinct(ChannelSession.uid)).label('unique_users'),
             func.min(ChannelSession.join_time).label('first_activity'),
-            func.max(ChannelSession.leave_time).label('last_activity')
+            func.max(ChannelSession.leave_time).label('last_activity'),
+            func.array_agg(func.distinct(ChannelSession.client_type)).label('client_types')
         ).filter(
             ChannelSession.app_id == app_id,
             ChannelSession.duration_seconds.isnot(None)  # Only include completed sessions
@@ -123,6 +124,9 @@ async def get_channels(app_id: str, page: int = 1, per_page: int = 30, db: Sessi
             # Convert seconds to minutes
             total_minutes = (session.total_seconds or 0) / 60.0
             
+            # Filter out None values from client_types array
+            client_types = [ct for ct in (session.client_types or []) if ct is not None]
+            
             channels.append(ChannelListResponse(
                 channel_name=session.channel_name,
                 display_name=display_name,
@@ -130,7 +134,8 @@ async def get_channels(app_id: str, page: int = 1, per_page: int = 30, db: Sessi
                 total_minutes=float(total_minutes),
                 unique_users=session.unique_users or 0,
                 first_activity=session.first_activity,
-                last_activity=session.last_activity
+                last_activity=session.last_activity,
+                client_types=client_types if client_types else None
             ))
         
         # Calculate pagination info
