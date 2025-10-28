@@ -39,6 +39,7 @@ class ChannelSessionResponse(BaseModel):
     platform: Optional[int]
     reason: Optional[int]
     client_type: Optional[int]
+    communication_mode: Optional[int] = None
 
 class ChannelMetricsResponse(BaseModel):
     """Response model for channel metrics"""

@@ -127,7 +127,84 @@ class WebhookProcessor:
                     logger.info(f"Found active channel epoch for out-of-order event: {session_key} -> {call_id}")
                     return call_id
             
-            # If no active epoch found, create a provisional epoch
+            # For leave events that come after destroy events, find the channel session
+            # where the leave event timestamp falls between create and destroy timestamps
+            if event_type in [104, 106, 108]:  # Leave events
+                # Find channel create event where create_ts <= leave_ts
+                create_event = self.db.query(WebhookEvent).filter(
+                    WebhookEvent.app_id == app_id,
+                    WebhookEvent.channel_name == channel_name,
+                    WebhookEvent.event_type == 101,  # Channel created
+                    WebhookEvent.ts <= ts  # Create before or at leave event
+                ).order_by(WebhookEvent.ts.desc()).first()
+                
+                if create_event:
+                    # Find channel destroy event where create_ts < destroy_ts <= leave_ts
+                    destroy_event = self.db.query(WebhookEvent).filter(
+                        WebhookEvent.app_id == app_id,
+                        WebhookEvent.channel_name == channel_name,
+                        WebhookEvent.event_type == 102,  # Channel destroyed
+                        WebhookEvent.ts > create_event.ts,  # Destroy after create
+                        WebhookEvent.ts <= ts  # Destroy before or at leave event
+                    ).first()
+                    
+                    if destroy_event:
+                        # Use the channel session ID from the create event
+                        call_id = f"{app_id}_{channel_name}_{create_event.ts}"
+                        self.active_channel_sessions[session_key] = call_id
+                        logger.info(f"Found channel session for leave event after destroy: {session_key} -> {call_id}")
+                        return call_id
+            
+            
+            # Also check if there's a channel destroy event at the same timestamp
+            # This handles cases where user events happen at the same time as channel destroy
+            destroy_at_same_time = self.db.query(WebhookEvent).filter(
+                WebhookEvent.app_id == app_id,
+                WebhookEvent.channel_name == channel_name,
+                WebhookEvent.event_type == 102,  # Channel destroyed
+                WebhookEvent.ts == ts  # Same timestamp
+            ).first()
+            
+            if destroy_at_same_time:
+                # Find the channel create event that was destroyed at this timestamp
+                create_before_destroy = self.db.query(WebhookEvent).filter(
+                    WebhookEvent.app_id == app_id,
+                    WebhookEvent.channel_name == channel_name,
+                    WebhookEvent.event_type == 101,  # Channel created
+                    WebhookEvent.ts < ts
+                ).order_by(WebhookEvent.ts.desc()).first()
+                
+                if create_before_destroy:
+                    # Use the session ID from the channel create event
+                    call_id = f"{app_id}_{channel_name}_{create_before_destroy.ts}"
+                    self.active_channel_sessions[session_key] = call_id
+                    logger.info(f"Using channel create session for same-timestamp event: {session_key} -> {call_id}")
+                    return call_id
+                
+                # Backup: Check if the user's sid matches the channel destroy sid
+                # This handles cases where the timestamp approach doesn't work
+                try:
+                    destroy_sid = json.loads(destroy_at_same_time.raw_payload).get('sid')
+                    user_sid = json.loads(webhook_data.raw_payload).get('sid')
+                    if destroy_sid and user_sid and destroy_sid == user_sid:
+                        # Find the channel create event that was destroyed at this timestamp
+                        create_before_destroy = self.db.query(WebhookEvent).filter(
+                            WebhookEvent.app_id == app_id,
+                            WebhookEvent.channel_name == channel_name,
+                            WebhookEvent.event_type == 101,  # Channel created
+                            WebhookEvent.ts < ts
+                        ).order_by(WebhookEvent.ts.desc()).first()
+                        
+                        if create_before_destroy:
+                            # Use the session ID from the channel create event
+                            call_id = f"{app_id}_{channel_name}_{create_before_destroy.ts}"
+                            self.active_channel_sessions[session_key] = call_id
+                            logger.info(f"Using channel create session for same-timestamp event (sid backup): {session_key} -> {call_id}")
+                            return call_id
+                except Exception as e:
+                    logger.debug(f"Error parsing sid from destroy/leave event: {e}")
+            
+            # If no recent session found, create a provisional epoch
             # This handles cases where 101/102 events are missing
             call_id = f"{app_id}_{channel_name}_{ts}_provisional"
             self.active_channel_sessions[session_key] = call_id
@@ -149,15 +226,78 @@ class WebhookProcessor:
     def _merge_provisional_sessions(self, app_id: str, channel_name: str, correct_session_id: str):
         """Merge provisional sessions into the correct channel session when channel is created"""
         try:
-            # Find all provisional sessions for this channel
+            # Extract timestamp from correct_session_id to find provisional sessions for this specific epoch
+            session_parts = correct_session_id.split('_')
+            if len(session_parts) >= 3:
+                try:
+                    session_timestamp = int(session_parts[-1])
+                    create_event_ts = session_timestamp
+                except ValueError:
+                    # If it's a sid-based session, we need to find the create event by sid
+                    # For now, skip merging for sid-based sessions
+                    logger.info(f"Skipping provisional merge for sid-based session: {correct_session_id}")
+                    return
+            else:
+                logger.warning(f"Cannot extract timestamp from session ID: {correct_session_id}")
+                return
+            
+            # Find provisional sessions that belong to this specific epoch
+            # They should be between this create event and the next create event (or now if no next create)
+            next_create = self.db.query(WebhookEvent).filter(
+                WebhookEvent.app_id == app_id,
+                WebhookEvent.channel_name == channel_name,
+                WebhookEvent.event_type == 101,  # Channel created
+                WebhookEvent.ts > create_event_ts
+            ).order_by(WebhookEvent.ts.asc()).first()
+            
+            if next_create:
+                # There's a next create event, provisional sessions should be between this and next
+                end_ts = next_create.ts
+            else:
+                # No next create event, provisional sessions should be after this create event
+                end_ts = int(time.time()) + 3600  # 1 hour in the future as upper bound
+            
+            logger.info(f"Looking for provisional sessions between {create_event_ts} and {end_ts} for channel {channel_name}")
+            
+            # Find provisional sessions that belong to this epoch
+            # Include sessions that happened after this create event but before the next create event
             provisional_sessions = self.db.query(ChannelSession).filter(
                 ChannelSession.app_id == app_id,
                 ChannelSession.channel_name == channel_name,
-                ChannelSession.channel_session_id.like('%_provisional')
+                ChannelSession.channel_session_id.like('%_provisional'),
+                ChannelSession.join_time >= datetime.fromtimestamp(create_event_ts),
+                ChannelSession.join_time < datetime.fromtimestamp(end_ts)
             ).all()
             
+            # Also look for provisional sessions that might have been created after the channel destroy
+            # but before the next channel create - these should be merged into the previous session
+            if next_create:
+                # Look for provisional sessions that happened after the previous channel destroy
+                # but before this new channel create
+                previous_destroy = self.db.query(WebhookEvent).filter(
+                    WebhookEvent.app_id == app_id,
+                    WebhookEvent.channel_name == channel_name,
+                    WebhookEvent.event_type == 102,  # Channel destroyed
+                    WebhookEvent.ts < create_event_ts
+                ).order_by(WebhookEvent.ts.desc()).first()
+                
+                if previous_destroy:
+                    # Look for provisional sessions that happened after the previous destroy
+                    # but before this new create - these belong to the previous session
+                    late_provisional_sessions = self.db.query(ChannelSession).filter(
+                        ChannelSession.app_id == app_id,
+                        ChannelSession.channel_name == channel_name,
+                        ChannelSession.channel_session_id.like('%_provisional'),
+                        ChannelSession.join_time >= datetime.fromtimestamp(previous_destroy.ts),
+                        ChannelSession.join_time < datetime.fromtimestamp(create_event_ts)
+                    ).all()
+                    
+                    if late_provisional_sessions:
+                        logger.info(f"Found {len(late_provisional_sessions)} late provisional sessions that belong to previous epoch")
+                        provisional_sessions.extend(late_provisional_sessions)
+            
             if provisional_sessions:
-                logger.info(f"Found {len(provisional_sessions)} provisional sessions to merge for channel {channel_name}")
+                logger.info(f"Found {len(provisional_sessions)} provisional sessions for epoch {create_event_ts} in channel {channel_name}")
                 
                 for session in provisional_sessions:
                     old_session_id = session.channel_session_id
@@ -168,7 +308,7 @@ class WebhookProcessor:
                 self.db.commit()
                 logger.info(f"Successfully merged {len(provisional_sessions)} provisional sessions")
             else:
-                logger.debug(f"No provisional sessions found for channel {channel_name}")
+                logger.debug(f"No provisional sessions found for epoch {create_event_ts} in channel {channel_name}")
                 
         except Exception as e:
             logger.error(f"Error merging provisional sessions for {app_id}/{channel_name}: {e}")
@@ -319,6 +459,7 @@ class WebhookProcessor:
             # 103/104: Broadcaster (is_host=True, communication_mode=0)
             # 105/106: Audience (is_host=False, communication_mode=0)  
             # 107/108: Communication (is_host=True, communication_mode=1)
+            event_type = webhook_data.eventType
             is_host = event_type in [103, 107]  # Broadcaster join OR Communication join
             communication_mode = 1 if event_type in [107] else 0  # Only communication join
             
@@ -377,6 +518,15 @@ class WebhookProcessor:
             # Create a session with duration from webhook payload if available
             if webhook_data.payload.duration:
                 join_time = leave_time - timedelta(seconds=webhook_data.payload.duration)
+                
+                # Determine role based on event type for leave events
+                event_type = webhook_data.eventType
+                # 103/104: Broadcaster (is_host=True, communication_mode=0)
+                # 105/106: Audience (is_host=False, communication_mode=0)  
+                # 107/108: Communication (is_host=True, communication_mode=1)
+                is_host = event_type in [103, 107]  # Broadcaster leave OR Communication leave
+                communication_mode = 1 if event_type in [107] else 0  # Only communication leave
+                
                 session = ChannelSession(
                     app_id=app_id,
                     channel_name=channel_name,
@@ -388,10 +538,13 @@ class WebhookProcessor:
                     product_id=webhook_data.productId,
                     platform=webhook_data.payload.platform,
                     reason=webhook_data.payload.reason,
-                    client_type=webhook_data.payload.clientType
+                    client_type=webhook_data.payload.clientType,
+                    is_host=is_host,
+                    communication_mode=communication_mode,
+                    role_switches=0
                 )
                 self.db.add(session)
-                logger.info(f"Created session from leave event for user {uid} with duration {webhook_data.payload.duration} seconds, Product ID: {webhook_data.productId}, Platform: {webhook_data.payload.platform}, Reason: {webhook_data.payload.reason}")
+                logger.info(f"Created session from leave event for user {uid} with duration {webhook_data.payload.duration} seconds, Product ID: {webhook_data.productId}, Platform: {webhook_data.payload.platform}, Reason: {webhook_data.payload.reason}, Role: {'Host' if is_host else 'Audience'}, Mode: {'RTC' if communication_mode == 1 else 'ILS'}")
             else:
                 logger.warning(f"No open session found for user {uid} leave event and no duration provided")
 
@@ -407,8 +560,7 @@ class WebhookProcessor:
         # Role switches only happen between broadcaster and audience (not communication mode)
         role_change_type = "Broadcaster" if event_type == 111 else "Audience"
         is_host = event_type == 111
-        # Role switches preserve the existing communication_mode (0 for broadcaster/audience)
-        communication_mode = 0  # Role switches are always in broadcaster/audience mode
+        # Role switches preserve the existing communication_mode from the session
         
         logger.info(f"Role change event: User {uid} changed to {role_change_type} in channel {channel_name} at {ts}, Product ID: {webhook_data.productId}, Platform: {webhook_data.payload.platform}, Reason: {webhook_data.payload.reason}")
         
@@ -424,11 +576,11 @@ class WebhookProcessor:
         if active_session:
             # Update role information
             active_session.is_host = is_host
-            # Role switches are always in broadcaster/audience mode (communication_mode=0)
-            active_session.communication_mode = communication_mode
+            # Role switches preserve the existing communication_mode (don't change it)
+            # active_session.communication_mode remains unchanged
             active_session.role_switches += 1
             active_session.updated_at = datetime.utcnow()
-            logger.info(f"Updated role for user {uid}: is_host={is_host}, communication_mode={communication_mode}, role_switches={active_session.role_switches}")
+            logger.info(f"Updated role for user {uid}: is_host={is_host}, communication_mode={active_session.communication_mode} (preserved), role_switches={active_session.role_switches}")
         else:
             logger.warning(f"No active session found for role change event for user {uid} in channel {channel_name}")
     

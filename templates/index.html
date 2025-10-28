@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <meta name="version" content="2025-01-28-v4">
+    <meta name="version" content="2025-01-28-v5">
     <style>
         * {
             margin: 0;
@@ -217,6 +217,43 @@
         .analytics-section.show {
             display: block !important;
         }
+        
+        .jump-to-top {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 50px;
+            width: 50px;
+            height: 50px;
+            font-size: 20px;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+            transition: all 0.3s ease;
+            opacity: 0;
+            visibility: hidden;
+            z-index: 1000;
+        }
+        
+        .jump-to-top.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+        
+        .jump-to-top:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        }
+        
+        /* Tooltip styles */
+        .metric-tooltip {
+            position: relative;
+            cursor: help;
+            border-bottom: 1px dotted #666;
+        }
+        
 
         .analytics-grid {
             display: grid;
@@ -256,26 +293,6 @@
             font-size: 0.9rem;
         }
         
-        .metric-tooltip {
-            position: relative;
-            cursor: help;
-        }
-        
-        .metric-tooltip:hover::after {
-            content: attr(data-tooltip);
-            position: absolute;
-            bottom: 100%;
-            left: 50%;
-            transform: translateX(-50%);
-            background: #333;
-            color: white;
-            padding: 8px 12px;
-            border-radius: 4px;
-            font-size: 0.8rem;
-            white-space: nowrap;
-            z-index: 1000;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-        }
 
         .analytics-card {
             background: #f8f9fa;
@@ -362,6 +379,11 @@
         .role-flag.audience {
             background: #e2e3e5;
             color: #383d41;
+        }
+        
+        .role-flag.rtc {
+            background: #d1ecf1;
+            color: #0c5460;
         }
         
         .sessions-table {
@@ -686,24 +708,26 @@
                 document.getElementById('appId').value = appId;
                 currentAppId = appId;
                 
-                if (view === 'user-analytics' && uid) {
-                    // Load user analytics directly
-                    showUserAnalytics(uid);
-                } else if (view === 'role-analytics' && channel) {
-                    // Load role analytics directly with session context
+                // Always load the base call first, then optionally load analytics
+                if (channel) {
                     currentChannel = channel;
                     currentSessionId = sessionId;
-                    showRoleAnalytics(channel);
-                } else if (view === 'quality-metrics' && channel) {
-                    // Load quality metrics directly with session context
-                    currentChannel = channel;
-                    currentSessionId = sessionId;
-                    showQualityMetrics(channel);
-                } else if (channel) {
-                    currentChannel = channel;
-                    currentSessionId = sessionId;
-                    // Load channel details directly
-                    loadChannelDetails(channel, sessionId);
+                    // Load channel details first (base call view)
+                    loadChannelDetails(channel, sessionId).then(() => {
+                        // After base call is loaded, optionally load analytics on top
+                        // Add a small delay to ensure the base view is fully rendered
+                        setTimeout(() => {
+                            if (view === 'user-analytics' && uid) {
+                                showUserAnalytics(uid);
+                            } else if (view === 'role-analytics') {
+                                showRoleAnalytics(channel);
+                            } else if (view === 'quality-metrics') {
+                                showQualityMetrics(channel);
+                            } else if (view === 'multi-user') {
+                                showMultiUserAnalytics(channel);
+                            }
+                        }, 100);
+                    });
                 } else {
                     // Load channels list
                     loadChannels(parseInt(page));
@@ -747,9 +771,7 @@
         }
         
         function displayChannels(channels) {
-            console.log('displayChannels called with channels:', channels);
             const grid = document.getElementById('channels-grid');
-            console.log('Grid element:', grid);
             
             if (channels.length === 0) {
                 grid.innerHTML = '<div class="no-data">No channels found for this App ID</div>';
@@ -785,7 +807,6 @@
                     </div>
                 `;
                 }).join('');
-                console.log('Generated channel HTML:', channelHTML);
                 grid.innerHTML = channelHTML;
             }
             
@@ -881,7 +902,10 @@
         
         // Copy current URL to clipboard
         function copyPermalink() {
+            // Copy the current URL with all parameters
+            // The page will load the base call first, then optionally load analytics
             const url = window.location.href;
+            
             const button = event.target;
             const originalText = button.textContent;
             
@@ -926,7 +950,6 @@
         }
         
         async function loadChannelDetails(channelName, sessionId = null) {
-            console.log('loadChannelDetails called with channelName:', channelName, 'sessionId:', sessionId);
             currentChannel = channelName;
             currentSessionId = sessionId;
             showLoading();
@@ -939,16 +962,14 @@
                 if (sessionId) {
                     url += `?session_id=${encodeURIComponent(sessionId)}`;
                 }
-                console.log('Fetching URL:', url);
                 const response = await fetch(url);
-                console.log('Response status:', response.status);
                 
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
                 
                 const data = await response.json();
-                console.log('Response data:', data);
+
                 displayChannelDetails(data);
                 
             } catch (error) {
@@ -960,7 +981,7 @@
         }
         
         function displayChannelDetails(data) {
-            console.log('displayChannelDetails called with data:', data);
+
             
             document.getElementById('channel-details-title').textContent = `Channel: ${data.channel_name}`;
             
@@ -985,9 +1006,9 @@
             }
             
             const content = document.getElementById('channel-details-content');
-            console.log('Content element found:', content);
-            console.log('Content innerHTML length:', content.innerHTML.length);
-            console.log('Content innerHTML preview:', content.innerHTML.substring(0, 200));
+
+
+
             
             // Add analytics buttons
             const analyticsButtons = `
@@ -1126,8 +1147,116 @@
                 `;
             }
             
-            console.log('About to call showChannelDetails()');
+
             showChannelDetails();
+        }
+        
+        // Jump to Top functionality
+        function initializeJumpToTop() {
+            const jumpToTopButton = document.getElementById('jumpToTop');
+            
+            if (!jumpToTopButton) {
+                return;
+            }
+            
+            // Show/hide button based on scroll position
+            window.addEventListener('scroll', function() {
+                if (window.pageYOffset > 300) {
+                    jumpToTopButton.classList.add('visible');
+                } else {
+                    jumpToTopButton.classList.remove('visible');
+                }
+            });
+        }
+
+        function initializeTooltips() {
+            // First, clean up any existing tooltips
+            document.querySelectorAll('.temp-tooltip').forEach(el => el.remove());
+            
+            const tooltips = document.querySelectorAll('.metric-tooltip');
+            
+            tooltips.forEach(tooltip => {
+                // Remove any existing event listeners to prevent duplicates
+                tooltip.removeEventListener('mouseenter', tooltip._mouseEnterHandler);
+                tooltip.removeEventListener('mouseleave', tooltip._mouseLeaveHandler);
+                
+                tooltip._mouseEnterHandler = function(e) {
+                    // Clean up any existing tooltip for this element
+                    if (e.target._tooltipEl) {
+                        e.target._tooltipEl.remove();
+                        e.target._tooltipEl = null;
+                    }
+                    
+                    const rect = e.target.getBoundingClientRect();
+                    const tooltipText = e.target.getAttribute('data-tooltip');
+                    
+                    // Create a temporary tooltip element
+                    const tooltipEl = document.createElement('div');
+                    tooltipEl.className = 'temp-tooltip';
+                    tooltipEl.textContent = tooltipText;
+                    tooltipEl.style.cssText = `
+                        position: fixed;
+                        background: #333;
+                        color: white;
+                        padding: 8px 12px;
+                        border-radius: 6px;
+                        font-size: 12px;
+                        z-index: 10000;
+                        max-width: 300px;
+                        white-space: normal;
+                        text-align: left;
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                        pointer-events: none;
+                        opacity: 0;
+                        transition: opacity 0.3s ease;
+                    `;
+                    
+                    document.body.appendChild(tooltipEl);
+                    
+                    // Position the tooltip to the left of the text
+                    const tooltipRect = tooltipEl.getBoundingClientRect();
+                    let left = rect.left - tooltipRect.width - 10;
+                    let top = rect.top + (rect.height / 2) - (tooltipRect.height / 2);
+                    
+                    // If left side would go off screen, position to the right
+                    if (left < 10) {
+                        left = rect.right + 10;
+                    }
+                    
+                    // Keep within viewport vertically
+                    if (top < 10) {
+                        top = 10;
+                    }
+                    if (top + tooltipRect.height > window.innerHeight - 10) {
+                        top = window.innerHeight - tooltipRect.height - 10;
+                    }
+                    
+                    tooltipEl.style.left = left + 'px';
+                    tooltipEl.style.top = top + 'px';
+                    tooltipEl.style.opacity = '1';
+                    
+                    // Store reference for cleanup
+                    e.target._tooltipEl = tooltipEl;
+                };
+                
+                tooltip._mouseLeaveHandler = function(e) {
+                    if (e.target._tooltipEl) {
+                        e.target._tooltipEl.remove();
+                        e.target._tooltipEl = null;
+                    }
+                };
+                
+                tooltip.addEventListener('mouseenter', tooltip._mouseEnterHandler);
+                tooltip.addEventListener('mouseleave', tooltip._mouseLeaveHandler);
+            });
+        }
+
+        
+        function scrollToTop() {
+            window.scrollTo({
+                top: 0,
+                behavior: 'smooth'
+            });
         }
         
         function showChannelsView() {
@@ -1189,8 +1318,8 @@
         }
         
         async function showMultiUserAnalytics(channelName) {
-            console.log('showMultiUserAnalytics called with channelName:', channelName);
-            console.log('currentAppId:', currentAppId);
+
+
             
             try {
                 showLoading();
@@ -1202,7 +1331,7 @@
                 }
                 
                 const data = await response.json();
-                console.log('Multi-user analytics data received:', data);
+
                 
                 displayMultiUserAnalytics(data, channelName);
                 hideLoading();
@@ -1283,6 +1412,9 @@
                         }
                     }
                 }
+                
+                // Initialize tooltips for the new content
+                initializeTooltips();
             }, 100);
         }
         
@@ -1308,15 +1440,15 @@
             
             return `
                 <div class="user-metric">
-                    <span>Channels Joined:</span>
+                    <span class="metric-tooltip" data-tooltip="Total number of different channels this user has joined">Channels Joined:</span>
                     <span>${user.total_channels_joined}</span>
                 </div>
                 <div class="user-metric">
-                    <span>Active Minutes:</span>
+                    <span class="metric-tooltip" data-tooltip="Total time user spent in active sessions across all channels">Active Minutes:</span>
                     <span>${user.total_active_minutes}</span>
                 </div>
                 <div class="user-metric">
-                    <span>Role Switches:</span>
+                    <span class="metric-tooltip" data-tooltip="Number of times user switched between host and audience roles during sessions">Role Switches:</span>
                     <span>${user.total_role_switches}</span>
                 </div>
                 <div class="user-metric">
@@ -1324,11 +1456,11 @@
                     <span>${mostCommonPlatform}</span>
                 </div>
                 <div class="user-metric">
-                    <span>Failed Calls:</span>
+                    <span class="metric-tooltip" data-tooltip="Sessions shorter than 5 seconds - likely failed connection attempts or technical issues">Failed Calls:</span>
                     <span>${user.failed_calls}</span>
                 </div>
                 <div class="user-metric">
-                    <span>Churn Events:</span>
+                    <span class="metric-tooltip" data-tooltip="Users frequently joining/leaving (reason=999) - indicates network issues or connection problems">Churn Events:</span>
                     <span>${user.churn_events}</span>
                 </div>
             `;
@@ -1369,6 +1501,9 @@
             
             // Update all dropdowns to reflect current selections
             updateAllDropdowns();
+            
+            // Initialize tooltips for the new content
+            setTimeout(() => initializeTooltips(), 50);
         }
         
         function updateAllDropdowns() {
@@ -1400,7 +1535,7 @@
 
         // Handle browser back/forward buttons
         window.addEventListener('popstate', function(event) {
-            console.log('Browser navigation detected:', event.state);
+
             if (event.state) {
                 const { appId, channel, sessionId, page, view } = event.state;
                 if (view === 'channels') {
@@ -1440,8 +1575,8 @@
                 console.error('Error loading user analytics:', error);
                 showError(`Failed to load user analytics: ${error.message}`);
                 hideLoading();
-                // Show back button on error
-                showChannelsView();
+                // Don't go back to channels view on error, just show the error
+                // showChannelsView();
             }
         }
 
@@ -1513,7 +1648,9 @@
                             <div class="metric-item">
                                 <span class="metric-label">
                                     ${channel.channel_name}
-                                    ${channel.is_host ? '<span class="role-flag host">Host</span>' : '<span class="role-flag audience">Audience</span>'}
+                                    ${channel.is_host ? 
+                                        (channel.communication_mode === 1 ? '<span class="role-flag rtc">RTC/Host</span>' : '<span class="role-flag host">ILS/Host</span>') : 
+                                        '<span class="role-flag audience">ILS/Audience</span>'}
                                 </span>
                                 <span class="metric-value">${channel.total_minutes} min (${channel.session_count} sessions)</span>
                             </div>
@@ -1543,14 +1680,20 @@
                 userAnalyticsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }, 100);
             
-            // Update browser history
-            const state = { appId: currentAppId, channel: currentChannel, sessionId: uid, page: currentPage, view: 'user-analytics' };
-            window.history.pushState(state, '', `/?appId=${currentAppId}&uid=${uid}&view=user-analytics`);
+            // Update browser history with session context
+            const state = { appId: currentAppId, channel: currentChannel, sessionId: currentSessionId, page: currentPage, view: 'user-analytics' };
+            const sessionParam = currentSessionId ? `&sessionId=${currentSessionId}` : '';
+            const channelParam = currentChannel ? `&channel=${currentChannel}` : '';
+            window.history.pushState(state, '', `/?appId=${currentAppId}${channelParam}${sessionParam}&uid=${uid}&view=user-analytics`);
+            
+            // Initialize tooltips for the new content
+            setTimeout(() => initializeTooltips(), 100);
+            
         }
 
         async function showRoleAnalytics(channelName) {
-            console.log('showRoleAnalytics called with channelName:', channelName);
-            console.log('currentAppId:', currentAppId);
+
+
             try {
                 showLoading();
                 const response = await fetch(`/api/channel/${currentAppId}/${channelName}/role-analytics?session_id=${currentSessionId}`);
@@ -1570,12 +1713,12 @@
         }
 
         function displayRoleAnalytics(data, channelName) {
-            console.log('displayRoleAnalytics called with data:', data);
-            console.log('channelName:', channelName);
+
+
             document.getElementById('role-analytics-title').textContent = `Role & Product Analytics: ${data.channel_name}`;
             
             const content = document.getElementById('role-analytics-content');
-            console.log('role-analytics-content element:', content);
+
             
             const htmlContent = `
                 <div class="analytics-grid">
@@ -1621,15 +1764,15 @@
                 </div>
             `;
             
-            console.log('Generated HTML content length:', htmlContent.length);
-            console.log('HTML content preview:', htmlContent.substring(0, 200));
+
+
             content.innerHTML = htmlContent;
-            console.log('Content innerHTML after assignment:', content.innerHTML.length, 'characters');
+
             
             // Test if content is visible
-            console.log('Content element offsetHeight:', content.offsetHeight);
-            console.log('Content element scrollHeight:', content.scrollHeight);
-            console.log('Content element clientHeight:', content.clientHeight);
+
+
+
 
             // Show the analytics section
             document.getElementById('channels-view').style.display = 'none';
@@ -1638,20 +1781,20 @@
             roleAnalyticsSection.style.display = 'block';
             roleAnalyticsSection.classList.add('show');
             
-            console.log('Analytics section after show:', roleAnalyticsSection);
-            console.log('Analytics section computed style:', window.getComputedStyle(roleAnalyticsSection).display);
-            console.log('Analytics section parent:', roleAnalyticsSection.parentElement);
+
+
+
             
             // Analytics section is now visible
-            console.log('Analytics section is now visible');
+
             
-            console.log('Role analytics section display style:', document.getElementById('role-analytics').style.display);
-            console.log('Role analytics section classes:', document.getElementById('role-analytics').className);
+
+
             
             // Analytics content is now visible
             setTimeout(() => {
-                console.log('Analytics content height:', content.offsetHeight);
-                console.log('Analytics section height:', document.getElementById('role-analytics').offsetHeight);
+
+
                 
                 // Scroll to analytics section
                 roleAnalyticsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1671,11 +1814,15 @@
             const state = { appId: currentAppId, channel: channelName, sessionId: currentSessionId, page: currentPage, view: 'role-analytics' };
             const sessionParam = currentSessionId ? `&sessionId=${currentSessionId}` : '';
             window.history.pushState(state, '', `/?appId=${currentAppId}&channel=${channelName}&view=role-analytics${sessionParam}`);
+            
+            // Initialize tooltips for the new content
+            setTimeout(() => initializeTooltips(), 100);
+            
         }
 
         async function showQualityMetrics(channelName) {
-            console.log('showQualityMetrics called with channelName:', channelName);
-            console.log('currentAppId:', currentAppId);
+
+
             try {
                 showLoading();
                 const response = await fetch(`/api/channel/${currentAppId}/${channelName}/quality-metrics?session_id=${currentSessionId}`);
@@ -1703,27 +1850,27 @@
                     <div class="analytics-card">
                         <h3>📊 Quality Overview</h3>
                         <div class="metric-item">
-                            <span class="metric-label">Quality Score</span>
+                            <span class="metric-label metric-tooltip" data-tooltip="Overall call quality score based on session duration, churn rate, and connection stability (0-100 scale)">Quality Score</span>
                             <span class="metric-value">${data.quality_score}/100</span>
                         </div>
                         <div class="metric-item">
-                            <span class="metric-label">Avg Session Length</span>
+                            <span class="metric-label metric-tooltip" data-tooltip="Average duration of user sessions in this channel - longer sessions indicate better engagement">Avg Session Length</span>
                             <span class="metric-value">${data.avg_user_session_length} min</span>
                         </div>
                         <div class="metric-item">
-                            <span class="metric-label">Max Concurrent Users</span>
+                            <span class="metric-label metric-tooltip" data-tooltip="Peak number of users connected simultaneously - shows channel capacity and popularity">Max Concurrent Users</span>
                             <span class="metric-value">${data.max_concurrent_users}</span>
                         </div>
                         <div class="metric-item">
-                            <span class="metric-label">Churn Events</span>
+                            <span class="metric-label metric-tooltip" data-tooltip="Users frequently joining/leaving (reason=999) - indicates network issues or connection problems">Churn Events</span>
                             <span class="metric-value">${data.churn_events}</span>
                         </div>
                         <div class="metric-item">
-                            <span class="metric-label">Failed Calls</span>
+                            <span class="metric-label metric-tooltip" data-tooltip="Sessions shorter than 5 seconds - likely failed connection attempts or technical issues">Failed Calls</span>
                             <span class="metric-value">${data.failed_calls}</span>
                         </div>
                         <div class="metric-item">
-                            <span class="metric-label">Test Channels</span>
+                            <span class="metric-label metric-tooltip" data-tooltip="Channels with only 1 user - likely test or abandoned channels">Test Channels</span>
                             <span class="metric-value">${data.test_channels}</span>
                         </div>
                     </div>
@@ -1777,36 +1924,40 @@
             const state = { appId: currentAppId, channel: channelName, sessionId: currentSessionId, page: currentPage, view: 'quality-metrics' };
             const sessionParam = currentSessionId ? `&sessionId=${currentSessionId}` : '';
             window.history.pushState(state, '', `/?appId=${currentAppId}&channel=${channelName}&view=quality-metrics${sessionParam}`);
+            
+            // Initialize tooltips for the new content
+            setTimeout(() => initializeTooltips(), 100);
+            
         }
         
         function showChannelDetails() {
-            console.log('showChannelDetails called');
+
             
             // First, ensure the results container is visible
             const results = document.getElementById('results');
             if (results) {
                 results.style.display = 'block';
-                console.log('Set results container display to block');
+
             }
             
             const channelsView = document.getElementById('channels-view');
             const channelDetails = document.getElementById('channel-details');
-            console.log('channels-view element:', channelsView);
-            console.log('channel-details element:', channelDetails);
+
+
             
             if (channelsView) {
                 channelsView.style.display = 'none';
-                console.log('Set channels-view display to none');
+
             }
             if (channelDetails) {
                 channelDetails.style.display = 'block';
                 channelDetails.classList.add('show');
-                console.log('Set channel-details display to block and added show class');
-                console.log('Channel details computed style:', window.getComputedStyle(channelDetails).display);
-                console.log('Channel details offsetHeight:', channelDetails.offsetHeight);
-                console.log('Channel details offsetWidth:', channelDetails.offsetWidth);
-                console.log('Channel details innerHTML length:', channelDetails.innerHTML.length);
-                console.log('Channel details innerHTML preview:', channelDetails.innerHTML.substring(0, 300));
+
+
+
+
+
+
             }
         }
         
@@ -1957,7 +2108,7 @@
                         errorMessage = errorData.detail || errorData.message || errorMessage;
                     } catch (e) {
                         // If JSON parsing fails, use the status text
-                        console.warn('Could not parse error response as JSON:', e);
+
                     }
                     throw new Error(errorMessage);
                 }
@@ -2025,27 +2176,38 @@
         document.addEventListener('DOMContentLoaded', function() {
             initializeFromURL();
             
+            // Initialize jump-to-top button
+            initializeJumpToTop();
+            
+            // Initialize tooltips
+            initializeTooltips();
+            
             // Add event delegation for analytics buttons
             document.addEventListener('click', function(event) {
-                console.log('Click detected on:', event.target);
+
                 if (event.target.classList.contains('analytics-btn')) {
                     const action = event.target.getAttribute('data-action');
                     const channel = event.target.getAttribute('data-channel');
-                    console.log('Analytics button clicked:', { action, channel });
+
                     
                     if (action === 'role' && channel) {
-                        console.log('Calling showRoleAnalytics with channel:', channel);
+
                         showRoleAnalytics(channel);
                     } else if (action === 'quality' && channel) {
-                        console.log('Calling showQualityMetrics with channel:', channel);
+
                         showQualityMetrics(channel);
                     } else if (action === 'multi-user' && channel) {
-                        console.log('Calling showMultiUserAnalytics with channel:', channel);
+
                         showMultiUserAnalytics(channel);
                     }
                 }
             });
         });
     </script>
+    
+    <!-- Jump to Top Button -->
+    <button class="jump-to-top" id="jumpToTop" onclick="scrollToTop()" title="Jump to Top">
+        ↑
+    </button>
 </body>
 </html>

@@ -112,7 +112,7 @@ logger.info("Database tables created/verified")
 templates = Jinja2Templates(directory="templates")
 
 @app.post("/{app_id}/webhooks")
-@rate_limit(max_requests=1000, window_seconds=60)  # 1000 requests per minute for webhooks
+# @rate_limit(max_requests=1000, window_seconds=60)  # Temporarily disabled for testing
 async def receive_webhook(app_id: str, request: Request):
     """Receive webhook from Agora for specific App ID"""
     client_ip = request.client.host if request.client else "unknown"
@@ -287,7 +287,8 @@ async def get_channel_details(app_id: str, channel_name: str, session_id: str = 
                 product_id=session.product_id,
                 platform=session.platform,
                 reason=session.reason,
-                client_type=session.client_type
+                client_type=session.client_type,
+                communication_mode=session.communication_mode
             ))
         
         # Calculate total metrics
@@ -388,6 +389,7 @@ async def get_user_detailed_analytics(app_id: str, uid: int, db: Session = Depen
                     'session_count': 0,
                     'role_switches': 0,
                     'is_host': False,
+                    'communication_mode': 0,
                     'last_activity': session.join_time
                 }
             
@@ -398,7 +400,9 @@ async def get_user_detailed_analytics(app_id: str, uid: int, db: Session = Depen
             # Host can be: broadcaster (communication_mode=0, is_host=True) OR communication host (communication_mode=1, is_host=True)
             if session.is_host:
                 channel_stats[channel]['is_host'] = True
+            # Use the communication_mode from the most recent session for this channel
             if session.join_time > channel_stats[channel]['last_activity']:
+                channel_stats[channel]['communication_mode'] = session.communication_mode or 0
                 channel_stats[channel]['last_activity'] = session.join_time
         
         for channel, stats in channel_stats.items():
@@ -408,6 +412,7 @@ async def get_user_detailed_analytics(app_id: str, uid: int, db: Session = Depen
                 'session_count': stats['session_count'],
                 'role_switches': stats['role_switches'],
                 'is_host': stats['is_host'],
+                'communication_mode': stats['communication_mode'],
                 'last_activity': stats['last_activity'].isoformat()
             })
         

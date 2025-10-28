@@ -189,6 +189,18 @@ curl -X POST https://your-domain.com/your-app-id/webhooks \
 - **Share Button**: One-click URL copying with visual feedback
 - **Browser History**: Proper URL updates without page reloads
 
+### Role and Communication Mode Indicators
+- **Role Flags**: Visual indicators showing user roles and communication modes
+- **Supported Combinations**:
+  - 🔴 **RTC/Host** - Real-time communication host (communication_mode=1, is_host=true)
+  - 🟡 **ILS/Host** - Interactive live streaming host (communication_mode=0, is_host=true)
+  - 🔵 **ILS/Audience** - Interactive live streaming audience (communication_mode=0, is_host=false)
+- **Event Type Mapping**:
+  - Events 103/104: Broadcaster Join/Leave → ILS/Host
+  - Events 105/106: Audience Join/Leave → ILS/Audience
+  - Events 107/108: Communication Join/Leave → RTC/Host
+- **Smart Session Assignment**: Correctly assigns users to channel sessions even when leave events arrive after channel destroy events
+
 ### Visual Channel Flags
 - **Client Type Indicators**: Color-coded flags showing what types of clients were used
 - **Supported Types**:
@@ -373,6 +385,11 @@ For issues and questions:
 ## 🔄 Changelog
 
 ### Recent Updates
+- ✅ **Role and Communication Mode Indicators**: Added visual indicators to distinguish between different communication modes and roles (RTC/Host, ILS/Host, ILS/Audience)
+- ✅ **Fixed Channel Session Assignment**: Resolved issue where users were incorrectly assigned to different channel sessions when leave events came after channel destroy events
+- ✅ **Enhanced Session Tracking**: Improved logic to correctly match leave events to their corresponding channel sessions using timestamp-based correlation
+- ✅ **Communication Mode Support**: Added support for tracking communication mode (RTC vs ILS) in session data and API responses
+- ✅ **Role Flag Display**: Frontend now displays short role indicators (RTC/Host, ILS/Host, ILS/Audience) for better user understanding
 - ✅ **Permalink Functionality**: Share specific channels with team members via direct URLs
 - ✅ **Visual Channel Flags**: Color-coded indicators for different client types (Cloud Recording, Media Push/Pull, Conversational AI, etc.)
 - ✅ **Enhanced Channel Display**: Improved channel cards with client type information and visual indicators

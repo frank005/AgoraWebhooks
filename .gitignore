@@ -79,8 +79,11 @@ sample_*.txt
 test_data/
 test_samples/
 
-# Old/unused files
-old/
+# Old/unused files (but keep test files)
+old/*.deb
+old/*.txt
+old/*.sh
+old/requirements-*.txt
 
 # Backups
 backups/
