@@ -81,8 +81,8 @@ test_samples/
 
 # Old/unused files (but keep test files)
 old/*.deb
-old/*.txt
-old/*.sh
+old/sample_*.txt
+old/start_*.sh
 old/requirements-*.txt
 
 # Backups

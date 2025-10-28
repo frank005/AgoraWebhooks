@@ -32,6 +32,83 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def analyze_user_reconnection_patterns(sessions, uid):
+    """Analyze user reconnection patterns and burst behavior within the same call"""
+    if not sessions:
+        return {
+            'reconnection_count': 0,
+            'burst_sessions': 0,
+            'rapid_reconnections': 0,
+            'avg_session_gap_minutes': 0,
+            'reconnection_pattern': 'stable'
+        }
+    
+    # Sort sessions by join time
+    sorted_sessions = sorted(sessions, key=lambda s: s.join_time)
+    
+    reconnection_count = 0
+    burst_sessions = 0
+    rapid_reconnections = 0
+    session_gaps = []
+    
+    # Group sessions by channel_session_id to analyze within the same call
+    channel_sessions = {}
+    for session in sorted_sessions:
+        channel_key = session.channel_session_id
+        if channel_key not in channel_sessions:
+            channel_sessions[channel_key] = []
+        channel_sessions[channel_key].append(session)
+    
+    # Analyze each channel session
+    for channel_key, channel_sessions_list in channel_sessions.items():
+        if len(channel_sessions_list) <= 1:
+            continue  # No reconnections in this channel
+            
+        # Sort by join time within this channel
+        channel_sessions_list.sort(key=lambda s: s.join_time)
+        
+        # Count reconnections (multiple sessions in same channel = reconnections)
+        reconnection_count += len(channel_sessions_list) - 1
+        
+        # Analyze gaps between sessions
+        for i in range(1, len(channel_sessions_list)):
+            prev_session = channel_sessions_list[i-1]
+            curr_session = channel_sessions_list[i]
+            
+            # Calculate gap between sessions
+            if prev_session.leave_time and curr_session.join_time:
+                gap_minutes = (curr_session.join_time - prev_session.leave_time).total_seconds() / 60.0
+                session_gaps.append(gap_minutes)
+                
+                # Rapid reconnection (within 2 minutes)
+                if gap_minutes <= 2:
+                    rapid_reconnections += 1
+                    
+                # Burst pattern (within 30 seconds)
+                if gap_minutes <= 0.5:
+                    burst_sessions += 1
+    
+    # Calculate average gap
+    avg_session_gap_minutes = sum(session_gaps) / len(session_gaps) if session_gaps else 0
+    
+    # Determine reconnection pattern
+    if rapid_reconnections >= 3:
+        pattern = 'unstable'
+    elif rapid_reconnections >= 1:
+        pattern = 'moderate'
+    elif reconnection_count > 0:
+        pattern = 'stable'
+    else:
+        pattern = 'no_reconnections'
+    
+    return {
+        'reconnection_count': reconnection_count,
+        'burst_sessions': burst_sessions,
+        'rapid_reconnections': rapid_reconnections,
+        'avg_session_gap_minutes': round(avg_session_gap_minutes, 2),
+        'reconnection_pattern': pattern
+    }
+
 # Initialize webhook processor
 webhook_processor = WebhookProcessor()
 
@@ -365,9 +442,20 @@ async def get_user_detailed_analytics(app_id: str, uid: int, db: Session = Depen
                 platform_name = get_platform_name(session.platform)
                 platform_counts[platform_name] = platform_counts.get(platform_name, 0) + 1
         
-        # Quality metrics
+        # Quality metrics based on reason codes
         avg_session_length = total_active_minutes / len(sessions) if sessions else 0
-        churn_events = len([s for s in sessions if s.reason == 999])
+        
+        # Categorize exits by reason codes
+        good_exits = len([s for s in sessions if s.reason == 1])  # Normal leave
+        network_timeouts = len([s for s in sessions if s.reason == 2])  # Connection timeout
+        permission_issues = len([s for s in sessions if s.reason == 3])  # Permissions issue
+        server_issues = len([s for s in sessions if s.reason == 4])  # Server load adjustment
+        device_switches = len([s for s in sessions if s.reason == 5])  # Device switch
+        ip_switching = len([s for s in sessions if s.reason == 9])  # Multiple IP addresses
+        network_issues = len([s for s in sessions if s.reason == 10])  # Network connection problems
+        churn_events = len([s for s in sessions if s.reason == 999])  # Abnormal user
+        other_issues = len([s for s in sessions if s.reason == 0])  # Other reasons
+        
         failed_calls = len([s for s in sessions if (s.duration_seconds or 0) < 5])
         spike_detection_score = churn_events / len(sessions) if sessions else 0
         
@@ -416,10 +504,36 @@ async def get_user_detailed_analytics(app_id: str, uid: int, db: Session = Depen
                 'last_activity': stats['last_activity'].isoformat()
             })
         
-        # Quality insights
+        # Quality insights based on reason codes
         quality_insights = []
-        if spike_detection_score > 0.1:
-            quality_insights.append(f"⚠️ User {uid} experienced {churn_events} abnormal leaves (reason 999). Suggested cause: network churn.")
+        
+        # High impact issues
+        if churn_events > 0:
+            quality_insights.append(f"🔴 User {uid} experienced {churn_events} abnormal leaves (reason=999) - frequent join/leave")
+        if other_issues > 0:
+            quality_insights.append(f"🔴 {other_issues} unknown issues (reason=0) - investigate further")
+        
+        # Medium impact issues
+        if network_timeouts > 0:
+            quality_insights.append(f"🟡 {network_timeouts} connection timeouts (reason=2) - network instability")
+        if network_issues > 0:
+            quality_insights.append(f"🟡 {network_issues} network connection problems (reason=10) - check connectivity")
+        if ip_switching > 0:
+            quality_insights.append(f"🟡 {ip_switching} IP switching events (reason=9) - VPN or multiple IPs detected")
+        if server_issues > 0:
+            quality_insights.append(f"🟡 {server_issues} server load adjustments (reason=4) - Agora server issues")
+        
+        # Low impact issues
+        if permission_issues > 0:
+            quality_insights.append(f"🟢 {permission_issues} permission issues (reason=3) - admin actions")
+        if device_switches > 0:
+            quality_insights.append(f"🟢 {device_switches} device switches (reason=5) - user behavior")
+        
+        # Good indicators
+        if good_exits > 0:
+            quality_insights.append(f"✅ {good_exits} normal exits (reason=1) - good user experience")
+        
+        # Other quality indicators
         if failed_calls > 0:
             quality_insights.append(f"📞 {failed_calls} failed calls detected (duration < 5s)")
         if total_role_switches > 5:
@@ -538,34 +652,109 @@ async def get_channel_quality_metrics(app_id: str, channel_name: str, session_id
             "15min+": len([s for s in session_lengths if s >= 900])
         }
         
-        # Quality indicators
-        churn_events = len([s for s in sessions if s.reason == 999])
+        # Quality indicators based on reason codes
+        # Good reasons (normal exits)
+        good_exits = len([s for s in sessions if s.reason == 1])  # Normal leave
+        
+        # Network/connection issues (moderate quality impact)
+        network_timeouts = len([s for s in sessions if s.reason == 2])  # Connection timeout
+        network_issues = len([s for s in sessions if s.reason == 10])  # Network connection problems
+        ip_switching = len([s for s in sessions if s.reason == 9])  # Multiple IP addresses
+        
+        # Server issues (moderate quality impact)
+        server_issues = len([s for s in sessions if s.reason == 4])  # Server load adjustment
+        
+        # Permission/control issues (low quality impact)
+        permission_issues = len([s for s in sessions if s.reason == 3])  # Permissions issue
+        device_switches = len([s for s in sessions if s.reason == 5])  # Device switch
+        
+        # Poor quality indicators
+        churn_events = len([s for s in sessions if s.reason == 999])  # Abnormal user
+        other_issues = len([s for s in sessions if s.reason == 0])  # Other reasons
+        
+        # Calculate total problematic exits
+        problematic_exits = network_timeouts + network_issues + ip_switching + server_issues + churn_events + other_issues
+        
         failed_calls = len([s for s in sessions if (s.duration_seconds or 0) < 5])
         test_channels = 1 if len(set(s.uid for s in sessions)) == 1 else 0
         
         # Calculate max concurrent users (simplified - would need more complex logic for real implementation)
         max_concurrent_users = len(set(s.uid for s in sessions))
         
-        # Calculate quality score (0-100)
+        # Calculate quality score (0-100) based on reason codes
         quality_score = 100
+        
+        # High impact: Abnormal users and other issues
         if churn_events > 0:
-            quality_score -= min(churn_events * 10, 50)
+            quality_score -= min(churn_events * 15, 60)  # High penalty for abnormal users
+        if other_issues > 0:
+            quality_score -= min(other_issues * 10, 40)  # High penalty for unknown issues
+        
+        # Medium impact: Network and server issues
+        network_issues_total = network_timeouts + network_issues + ip_switching
+        if network_issues_total > 0:
+            quality_score -= min(network_issues_total * 8, 35)  # Medium penalty for network issues
+        if server_issues > 0:
+            quality_score -= min(server_issues * 6, 25)  # Medium penalty for server issues
+        
+        # Low impact: Permission and device issues
+        control_issues = permission_issues + device_switches
+        if control_issues > 0:
+            quality_score -= min(control_issues * 3, 15)  # Low penalty for control issues
+        
+        # Failed calls (short duration)
         if failed_calls > 0:
             quality_score -= min(failed_calls * 5, 30)
+        
+        # Session length impact
         if avg_user_session_length < 1:
             quality_score -= 20
-        quality_score = max(0, quality_score)
         
-        # Generate insights
+        # Bonus for good exits (if most exits are normal)
+        total_exits = len(sessions)
+        if total_exits > 0 and good_exits / total_exits > 0.7:
+            quality_score += 5  # Small bonus for mostly normal exits
+        
+        quality_score = max(0, min(100, quality_score))  # Clamp between 0-100
+        
+        # Generate insights based on reason codes
         insights = []
+        
+        # High impact issues
         if churn_events > 0:
-            insights.append(f"⚠️ {churn_events} churn events detected (reason=999)")
+            insights.append(f"🔴 {churn_events} abnormal user events (reason=999) - frequent join/leave")
+        if other_issues > 0:
+            insights.append(f"🔴 {other_issues} unknown issues (reason=0) - investigate further")
+        
+        # Medium impact issues
+        if network_timeouts > 0:
+            insights.append(f"🟡 {network_timeouts} connection timeouts (reason=2) - network instability")
+        if network_issues > 0:
+            insights.append(f"🟡 {network_issues} network connection problems (reason=10) - check connectivity")
+        if ip_switching > 0:
+            insights.append(f"🟡 {ip_switching} IP switching events (reason=9) - VPN or multiple IPs detected")
+        if server_issues > 0:
+            insights.append(f"🟡 {server_issues} server load adjustments (reason=4) - Agora server issues")
+        
+        # Low impact issues
+        if permission_issues > 0:
+            insights.append(f"🟢 {permission_issues} permission issues (reason=3) - admin actions")
+        if device_switches > 0:
+            insights.append(f"🟢 {device_switches} device switches (reason=5) - user behavior")
+        
+        # Good indicators
+        if good_exits > 0:
+            insights.append(f"✅ {good_exits} normal exits (reason=1) - good user experience")
+        
+        # Other quality indicators
         if failed_calls > 0:
             insights.append(f"📞 {failed_calls} failed calls (duration < 5s)")
         if test_channels:
             insights.append("🧪 Test channel detected (only 1 user)")
         if avg_user_session_length < 1:
             insights.append(f"⏱️ Short average session length: {avg_user_session_length:.1f} minutes")
+        
+        # Overall quality assessment
         if quality_score < 50:
             insights.append("🔴 Poor quality indicators detected")
         elif quality_score < 80:
@@ -636,8 +825,68 @@ async def get_channel_multi_user_analytics(app_id: str, channel_name: str, sessi
             # Failed calls (sessions < 5 seconds)
             failed_calls = len([s for s in user_session_list if (s.duration_seconds or 0) < 5])
             
-            # Churn events (reason = 999)
-            churn_events = len([s for s in user_session_list if s.reason == 999])
+            # Comprehensive reason code analysis per user
+            good_exits = len([s for s in user_session_list if s.reason == 1])  # Normal leave
+            network_timeouts = len([s for s in user_session_list if s.reason == 2])  # Connection timeout
+            permission_issues = len([s for s in user_session_list if s.reason == 3])  # Permissions issue
+            server_issues = len([s for s in user_session_list if s.reason == 4])  # Server load adjustment
+            device_switches = len([s for s in user_session_list if s.reason == 5])  # Device switch
+            ip_switching = len([s for s in user_session_list if s.reason == 9])  # Multiple IP addresses
+            network_issues = len([s for s in user_session_list if s.reason == 10])  # Network connection problems
+            churn_events = len([s for s in user_session_list if s.reason == 999])  # Abnormal user
+            other_issues = len([s for s in user_session_list if s.reason == 0])  # Other reasons
+            
+            # Analyze reconnection patterns and burst behavior
+            reconnection_analysis = analyze_user_reconnection_patterns(user_session_list, uid)
+            
+            # Calculate user quality score
+            user_quality_score = 100
+            
+            # High impact issues
+            if churn_events > 0:
+                user_quality_score -= min(churn_events * 15, 60)
+            if other_issues > 0:
+                user_quality_score -= min(other_issues * 10, 40)
+            
+            # Medium impact issues
+            network_issues_total = network_timeouts + network_issues + ip_switching
+            if network_issues_total > 0:
+                user_quality_score -= min(network_issues_total * 8, 35)
+            if server_issues > 0:
+                user_quality_score -= min(server_issues * 6, 25)
+            
+            # Low impact issues
+            control_issues = permission_issues + device_switches
+            if control_issues > 0:
+                user_quality_score -= min(control_issues * 3, 15)
+            
+            # Failed calls
+            if failed_calls > 0:
+                user_quality_score -= min(failed_calls * 5, 30)
+            
+            # Reconnection pattern impact
+            if reconnection_analysis['reconnection_pattern'] == 'unstable':
+                user_quality_score -= 25  # High penalty for unstable connections
+            elif reconnection_analysis['reconnection_pattern'] == 'moderate':
+                user_quality_score -= 15  # Medium penalty for moderate reconnections
+            elif reconnection_analysis['rapid_reconnections'] > 0:
+                user_quality_score -= 10  # Light penalty for any rapid reconnections
+            
+            # Burst behavior impact
+            if reconnection_analysis['burst_sessions'] > 0:
+                user_quality_score -= min(reconnection_analysis['burst_sessions'] * 5, 20)
+            
+            # Session length impact
+            avg_session_length = total_minutes / len(user_session_list) if user_session_list else 0
+            if avg_session_length < 1:
+                user_quality_score -= 20
+            
+            # Bonus for good exits
+            total_exits = len(user_session_list)
+            if total_exits > 0 and good_exits / total_exits > 0.7:
+                user_quality_score += 5
+            
+            user_quality_score = max(0, min(100, user_quality_score))
             
             user_analytics.append({
                 'uid': uid,
@@ -646,7 +895,19 @@ async def get_channel_multi_user_analytics(app_id: str, channel_name: str, sessi
                 'total_role_switches': total_role_switches,
                 'platform_distribution': platform_dist,
                 'failed_calls': failed_calls,
-                'churn_events': churn_events
+                'churn_events': churn_events,
+                'quality_score': round(user_quality_score, 1),
+                'reason_breakdown': {
+                    'good_exits': good_exits,
+                    'network_timeouts': network_timeouts,
+                    'permission_issues': permission_issues,
+                    'server_issues': server_issues,
+                    'device_switches': device_switches,
+                    'ip_switching': ip_switching,
+                    'network_issues': network_issues,
+                    'other_issues': other_issues
+                },
+                'reconnection_analysis': reconnection_analysis
             })
         
         # Sort by total active minutes (descending)
