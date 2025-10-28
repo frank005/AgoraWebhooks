@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Float, Text, Index
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Float, Text, Index, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
@@ -69,6 +69,15 @@ class ChannelSession(Base):
     reason = Column(Integer, nullable=True)
     client_type = Column(Integer, nullable=True)
     
+    # Role and communication mode tracking
+    communication_mode = Column(Integer, nullable=True)  # 0=audience, 1=host/broadcaster
+    role_switches = Column(Integer, default=0)  # Count of role changes for this user
+    is_host = Column(Boolean, default=False)  # Current role (host/audience)
+    
+    # Quality metrics
+    join_to_media_time = Column(Integer, nullable=True)  # Time from join to first media (seconds)
+    session_quality_score = Column(Float, nullable=True)  # Calculated quality score
+    
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -122,6 +131,20 @@ class UserMetrics(Base):
     total_minutes = Column(Float, default=0.0)
     session_count = Column(Integer, default=0)
     
+    # Role analytics
+    host_minutes = Column(Float, default=0.0)
+    audience_minutes = Column(Float, default=0.0)
+    role_switches = Column(Integer, default=0)
+    
+    # Platform analytics
+    platform_distribution = Column(Text)  # JSON string of platform usage
+    
+    # Quality metrics
+    avg_session_length = Column(Float, default=0.0)
+    avg_join_to_media_time = Column(Float, default=0.0)
+    churn_events = Column(Integer, default=0)  # reason=999 events
+    failed_calls = Column(Integer, default=0)  # sessions < 5 seconds
+    
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -129,6 +152,78 @@ class UserMetrics(Base):
     # Unique constraint
     __table_args__ = (
         Index('idx_app_uid_channel_date', 'app_id', 'uid', 'channel_name', 'date', unique=True),
+    )
+
+class UserAnalytics(Base):
+    """Comprehensive user analytics and insights"""
+    __tablename__ = "user_analytics"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    app_id = Column(String(50), nullable=False, index=True)
+    uid = Column(Integer, nullable=False, index=True)
+    
+    # Overall metrics
+    total_channels_joined = Column(Integer, default=0)
+    total_active_minutes = Column(Float, default=0.0)
+    total_role_switches = Column(Integer, default=0)
+    
+    # Platform distribution (JSON)
+    platform_distribution = Column(Text)  # {"web": 120, "ios": 60, "android": 30}
+    
+    # Quality indicators
+    avg_session_length = Column(Float, default=0.0)
+    spike_detection_score = Column(Float, default=0.0)  # Frequency of reason=999 events
+    churn_events = Column(Integer, default=0)
+    failed_calls = Column(Integer, default=0)
+    
+    # Product usage breakdown
+    rtc_minutes = Column(Float, default=0.0)
+    cloud_recording_minutes = Column(Float, default=0.0)
+    media_push_minutes = Column(Float, default=0.0)
+    media_pull_minutes = Column(Float, default=0.0)
+    conversational_ai_minutes = Column(Float, default=0.0)
+    
+    # Metadata
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Unique constraint
+    __table_args__ = (
+        Index('idx_app_uid_unique', 'app_id', 'uid', unique=True),
+    )
+
+class QualityMetrics(Base):
+    """Channel and session quality metrics"""
+    __tablename__ = "quality_metrics"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    app_id = Column(String(50), nullable=False, index=True)
+    channel_name = Column(String(255), nullable=False, index=True)
+    channel_session_id = Column(String(100), nullable=True, index=True)
+    date = Column(DateTime, nullable=False, index=True)
+    
+    # Quality indicators
+    avg_user_session_length = Column(Float, default=0.0)
+    avg_join_to_media_time = Column(Float, default=0.0)
+    max_concurrent_users = Column(Integer, default=0)
+    churn_events = Column(Integer, default=0)
+    failed_calls = Column(Integer, default=0)
+    test_channels = Column(Integer, default=0)  # Channels with only 1 user
+    
+    # Session length histogram (JSON)
+    session_length_histogram = Column(Text)  # {"0-5s": 10, "5-30s": 25, "30-60s": 15}
+    
+    # Performance data
+    peak_concurrent_time = Column(DateTime, nullable=True)
+    first_media_time = Column(DateTime, nullable=True)
+    
+    # Metadata
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Unique constraint
+    __table_args__ = (
+        Index('idx_app_channel_session_date', 'app_id', 'channel_name', 'channel_session_id', 'date', unique=True),
     )
 
 def create_tables():

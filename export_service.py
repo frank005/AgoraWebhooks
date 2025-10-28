@@ -45,6 +45,11 @@ class ExportService:
         # Add one day to end_date to include the full day
         end_date_inclusive = request.end_date + timedelta(days=1)
         
+        # Check if we need chunked export for large datasets
+        total_records = self._estimate_total_records(request, end_date_inclusive)
+        if total_records > 10000 and request.format == "csv":
+            return self._export_chunked_csv(request, end_date_inclusive, total_records)
+        
         export_id = str(uuid.uuid4())
         export_data = {
             "export_id": export_id,
@@ -322,3 +327,262 @@ class ExportService:
         writer.writeheader()
         writer.writerows(data)
         return output.getvalue()
+    
+    def _estimate_total_records(self, request: ExportRequest, end_date_inclusive: datetime) -> int:
+        """Estimate total number of records for the export"""
+        total = 0
+        
+        # Build base query conditions
+        conditions = [
+            WebhookEvent.app_id == request.app_id,
+            WebhookEvent.ts >= int(request.start_date.timestamp()),
+            WebhookEvent.ts < int(end_date_inclusive.timestamp())
+        ]
+        
+        if request.channel_name:
+            conditions.append(WebhookEvent.channel_name == request.channel_name)
+        
+        # Count webhook events
+        if request.include_webhook_events:
+            total += self.db.query(WebhookEvent).filter(and_(*conditions)).count()
+        
+        # Count sessions
+        if request.include_sessions:
+            session_conditions = [
+                ChannelSession.app_id == request.app_id,
+                ChannelSession.join_time >= request.start_date,
+                ChannelSession.join_time < end_date_inclusive
+            ]
+            if request.channel_name:
+                session_conditions.append(ChannelSession.channel_name == request.channel_name)
+            total += self.db.query(ChannelSession).filter(and_(*session_conditions)).count()
+        
+        # Count metrics
+        if request.include_metrics:
+            # Channel metrics
+            channel_metric_conditions = [
+                ChannelMetrics.app_id == request.app_id,
+                ChannelMetrics.date >= request.start_date,
+                ChannelMetrics.date < end_date_inclusive
+            ]
+            if request.channel_name:
+                channel_metric_conditions.append(ChannelMetrics.channel_name == request.channel_name)
+            total += self.db.query(ChannelMetrics).filter(and_(*channel_metric_conditions)).count()
+            
+            # User metrics
+            user_metric_conditions = [
+                UserMetrics.app_id == request.app_id,
+                UserMetrics.date >= request.start_date,
+                UserMetrics.date < end_date_inclusive
+            ]
+            if request.channel_name:
+                user_metric_conditions.append(UserMetrics.channel_name == request.channel_name)
+            total += self.db.query(UserMetrics).filter(and_(*user_metric_conditions)).count()
+        
+        return total
+    
+    def _export_chunked_csv(self, request: ExportRequest, end_date_inclusive: datetime, total_records: int) -> Dict[str, Any]:
+        """Export large datasets in chunks to prevent database lockup"""
+        chunk_size = 5000  # Process 5000 records at a time
+        total_chunks = (total_records + chunk_size - 1) // chunk_size
+        
+        logger.info(f"Exporting {total_records} records in {total_chunks} chunks of {chunk_size}")
+        
+        # Create zip file for chunks
+        zip_buffer = BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            # Export webhook events in chunks
+            if request.include_webhook_events:
+                self._export_webhook_events_chunked(request, end_date_inclusive, chunk_size, zip_file)
+            
+            # Export sessions in chunks
+            if request.include_sessions:
+                self._export_sessions_chunked(request, end_date_inclusive, chunk_size, zip_file)
+            
+            # Export metrics in chunks
+            if request.include_metrics:
+                self._export_metrics_chunked(request, end_date_inclusive, chunk_size, zip_file)
+        
+        zip_buffer.seek(0)
+        return {
+            "zip_content": zip_buffer.getvalue(),
+            "content_type": "application/zip",
+            "filename": f"agora_export_chunked_{request.app_id}_{request.start_date.strftime('%Y%m%d')}_{request.end_date.strftime('%Y%m%d')}.zip",
+            "total_records": total_records,
+            "chunks": total_chunks
+        }
+    
+    def _export_webhook_events_chunked(self, request: ExportRequest, end_date_inclusive: datetime, chunk_size: int, zip_file):
+        """Export webhook events in chunks"""
+        offset = 0
+        chunk_num = 1
+        
+        while True:
+            # Build query conditions
+            conditions = [
+                WebhookEvent.app_id == request.app_id,
+                WebhookEvent.ts >= int(request.start_date.timestamp()),
+                WebhookEvent.ts < int(end_date_inclusive.timestamp())
+            ]
+            
+            if request.channel_name:
+                conditions.append(WebhookEvent.channel_name == request.channel_name)
+            
+            # Get chunk of webhook events
+            events = self.db.query(WebhookEvent).filter(and_(*conditions)).offset(offset).limit(chunk_size).all()
+            
+            if not events:
+                break
+            
+            # Convert to export format
+            events_data = [self._format_webhook_event(event) for event in events]
+            
+            # Create CSV for this chunk
+            csv_content = self._create_csv_from_data(events_data, "webhook_events")
+            zip_file.writestr(f"webhook_events_chunk_{chunk_num:03d}.csv", csv_content)
+            
+            offset += chunk_size
+            chunk_num += 1
+            
+            logger.info(f"Exported webhook events chunk {chunk_num - 1}")
+    
+    def _export_sessions_chunked(self, request: ExportRequest, end_date_inclusive: datetime, chunk_size: int, zip_file):
+        """Export sessions in chunks"""
+        offset = 0
+        chunk_num = 1
+        
+        while True:
+            # Build query conditions
+            conditions = [
+                ChannelSession.app_id == request.app_id,
+                ChannelSession.join_time >= request.start_date,
+                ChannelSession.join_time < end_date_inclusive
+            ]
+            
+            if request.channel_name:
+                conditions.append(ChannelSession.channel_name == request.channel_name)
+            
+            # Get chunk of sessions
+            sessions = self.db.query(ChannelSession).filter(and_(*conditions)).offset(offset).limit(chunk_size).all()
+            
+            if not sessions:
+                break
+            
+            # Convert to export format
+            sessions_data = [self._format_channel_session(session) for session in sessions]
+            
+            # Create CSV for this chunk
+            csv_content = self._create_csv_from_data(sessions_data, "sessions")
+            zip_file.writestr(f"sessions_chunk_{chunk_num:03d}.csv", csv_content)
+            
+            offset += chunk_size
+            chunk_num += 1
+            
+            logger.info(f"Exported sessions chunk {chunk_num - 1}")
+    
+    def _export_metrics_chunked(self, request: ExportRequest, end_date_inclusive: datetime, chunk_size: int, zip_file):
+        """Export metrics in chunks"""
+        # Export channel metrics
+        self._export_channel_metrics_chunked(request, end_date_inclusive, chunk_size, zip_file)
+        
+        # Export user metrics
+        self._export_user_metrics_chunked(request, end_date_inclusive, chunk_size, zip_file)
+    
+    def _export_channel_metrics_chunked(self, request: ExportRequest, end_date_inclusive: datetime, chunk_size: int, zip_file):
+        """Export channel metrics in chunks"""
+        offset = 0
+        chunk_num = 1
+        
+        while True:
+            # Build query conditions
+            conditions = [
+                ChannelMetrics.app_id == request.app_id,
+                ChannelMetrics.date >= request.start_date,
+                ChannelMetrics.date < end_date_inclusive
+            ]
+            
+            if request.channel_name:
+                conditions.append(ChannelMetrics.channel_name == request.channel_name)
+            
+            # Get chunk of channel metrics
+            metrics = self.db.query(ChannelMetrics).filter(and_(*conditions)).offset(offset).limit(chunk_size).all()
+            
+            if not metrics:
+                break
+            
+            # Convert to export format
+            metrics_data = [self._format_channel_metrics(metric) for metric in metrics]
+            
+            # Create CSV for this chunk
+            csv_content = self._create_csv_from_data(metrics_data, "channel_metrics")
+            zip_file.writestr(f"channel_metrics_chunk_{chunk_num:03d}.csv", csv_content)
+            
+            offset += chunk_size
+            chunk_num += 1
+            
+            logger.info(f"Exported channel metrics chunk {chunk_num - 1}")
+    
+    def _export_user_metrics_chunked(self, request: ExportRequest, end_date_inclusive: datetime, chunk_size: int, zip_file):
+        """Export user metrics in chunks"""
+        offset = 0
+        chunk_num = 1
+        
+        while True:
+            # Build query conditions
+            conditions = [
+                UserMetrics.app_id == request.app_id,
+                UserMetrics.date >= request.start_date,
+                UserMetrics.date < end_date_inclusive
+            ]
+            
+            if request.channel_name:
+                conditions.append(UserMetrics.channel_name == request.channel_name)
+            
+            # Get chunk of user metrics
+            metrics = self.db.query(UserMetrics).filter(and_(*conditions)).offset(offset).limit(chunk_size).all()
+            
+            if not metrics:
+                break
+            
+            # Convert to export format
+            metrics_data = [self._format_user_metrics(metric) for metric in metrics]
+            
+            # Create CSV for this chunk
+            csv_content = self._create_csv_from_data(metrics_data, "user_metrics")
+            zip_file.writestr(f"user_metrics_chunk_{chunk_num:03d}.csv", csv_content)
+            
+            offset += chunk_size
+            chunk_num += 1
+            
+            logger.info(f"Exported user metrics chunk {chunk_num - 1}")
+    
+    def create_public_share_url(self, request: ExportRequest, token: str) -> str:
+        """Create a public share URL with read-only token"""
+        # This would typically store the token in a database or cache
+        # For now, we'll return a URL with the token
+        base_url = "https://your-domain.com"  # This should be configurable
+        return f"{base_url}/api/export/public/{token}"
+    
+    def validate_export_limits(self, request: ExportRequest) -> Dict[str, Any]:
+        """Validate export request against limits"""
+        # Estimate total records
+        end_date_inclusive = request.end_date + timedelta(days=1) if request.end_date else datetime.utcnow() + timedelta(days=1)
+        total_records = self._estimate_total_records(request, end_date_inclusive)
+        
+        # Check limits
+        limits = {
+            "max_records": 100000,  # Maximum records per export
+            "max_days": 30,  # Maximum days per export
+            "chunk_threshold": 10000  # Threshold for chunked export
+        }
+        
+        # Calculate estimated file size (rough estimate)
+        estimated_size_mb = total_records * 0.5  # Rough estimate: 0.5KB per record
+        
+        return {
+            "total_records": total_records,
+            "estimated_size_mb": round(estimated_size_mb, 2),
+            "within_limits": total_records <= limits["max_records"],
+            "needs_chunking": total_records > limits["chunk_threshold"],
+            "limits": limits
+        }

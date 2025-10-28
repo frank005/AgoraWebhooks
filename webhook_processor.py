@@ -315,6 +315,13 @@ class WebhookProcessor:
                 existing_session.updated_at = datetime.utcnow()
                 logger.info(f"Updated existing session join time for user {uid}, Product ID: {webhook_data.productId}, Platform: {webhook_data.payload.platform}, Reason: {webhook_data.payload.reason}")
         else:
+            # Determine initial role based on event type
+            # 103/104: Broadcaster (is_host=True, communication_mode=0)
+            # 105/106: Audience (is_host=False, communication_mode=0)  
+            # 107/108: Communication (is_host=True, communication_mode=1)
+            is_host = event_type in [103, 107]  # Broadcaster join OR Communication join
+            communication_mode = 1 if event_type in [107] else 0  # Only communication join
+            
             # Create new session
             session = ChannelSession(
                 app_id=app_id,
@@ -325,10 +332,13 @@ class WebhookProcessor:
                 product_id=webhook_data.productId,
                 platform=webhook_data.payload.platform,
                 reason=webhook_data.payload.reason,
-                client_type=webhook_data.payload.clientType
+                client_type=webhook_data.payload.clientType,
+                is_host=is_host,
+                communication_mode=communication_mode,
+                role_switches=0
             )
             self.db.add(session)
-            logger.info(f"Created new session for user {uid} in channel {channel_name} (epoch: {channel_session_id}), Product ID: {webhook_data.productId}, Platform: {webhook_data.payload.platform}, Reason: {webhook_data.payload.reason}")
+            logger.info(f"Created new session for user {uid} in channel {channel_name} (epoch: {channel_session_id}), Product ID: {webhook_data.productId}, Platform: {webhook_data.payload.platform}, Reason: {webhook_data.payload.reason}, Role: {'Host' if is_host else 'Audience'}")
         
         # Update lastClientSeq for this user
         if existing_session:
@@ -386,17 +396,41 @@ class WebhookProcessor:
                 logger.warning(f"No open session found for user {uid} leave event and no duration provided")
 
     async def _handle_role_change(self, app_id: str, webhook_data: WebhookRequest, channel_session_id: str = None):
-        """Handle role change events (111, 112) - log but don't create sessions"""
+        """Handle role change events (111, 112) - track role switches and communication mode"""
         uid = webhook_data.payload.uid
         channel_name = webhook_data.payload.channelName
         event_type = webhook_data.eventType
         ts = datetime.fromtimestamp(webhook_data.payload.ts)
         
+        # 111: client role change to broadcaster
+        # 112: client role change to audience
+        # Role switches only happen between broadcaster and audience (not communication mode)
         role_change_type = "Broadcaster" if event_type == 111 else "Audience"
+        is_host = event_type == 111
+        # Role switches preserve the existing communication_mode (0 for broadcaster/audience)
+        communication_mode = 0  # Role switches are always in broadcaster/audience mode
+        
         logger.info(f"Role change event: User {uid} changed to {role_change_type} in channel {channel_name} at {ts}, Product ID: {webhook_data.productId}, Platform: {webhook_data.payload.platform}, Reason: {webhook_data.payload.reason}")
         
-        # For role changes, we don't create new sessions, just log the event
-        # The user is already in the channel, just changing their role
+        # Find the active session for this user and update role information
+        active_session = self.db.query(ChannelSession).filter(
+            ChannelSession.app_id == app_id,
+            ChannelSession.channel_name == channel_name,
+            ChannelSession.channel_session_id == channel_session_id,
+            ChannelSession.uid == uid,
+            ChannelSession.leave_time.is_(None)
+        ).first()
+        
+        if active_session:
+            # Update role information
+            active_session.is_host = is_host
+            # Role switches are always in broadcaster/audience mode (communication_mode=0)
+            active_session.communication_mode = communication_mode
+            active_session.role_switches += 1
+            active_session.updated_at = datetime.utcnow()
+            logger.info(f"Updated role for user {uid}: is_host={is_host}, communication_mode={communication_mode}, role_switches={active_session.role_switches}")
+        else:
+            logger.warning(f"No active session found for role change event for user {uid} in channel {channel_name}")
     
     async def _update_metrics(self, app_id: str, webhook_data: WebhookRequest, channel_session_id: str = None):
         """Update aggregated metrics tables"""

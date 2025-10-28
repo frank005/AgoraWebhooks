@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Agora Webhooks Dashboard</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <meta name="version" content="2025-01-28-v4">
     <style>
         * {
             margin: 0;
@@ -197,6 +201,167 @@
         
         .channel-details.show {
             display: block !important;
+        }
+
+        .analytics-section {
+            display: none;
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-top: 20px;
+            min-height: 200px;
+            width: 100%;
+        }
+
+        .analytics-section.show {
+            display: block !important;
+        }
+
+        .analytics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 12px;
+            margin-top: 15px;
+        }
+        
+        .multi-user-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-top: 15px;
+        }
+        
+        .user-card {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+            min-height: 200px;
+        }
+        
+        .user-card h4 {
+            margin-bottom: 8px;
+            color: #333;
+            font-size: 1rem;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 4px;
+        }
+        
+        .user-metric {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 4px;
+            padding: 2px 0;
+            font-size: 0.9rem;
+        }
+        
+        .metric-tooltip {
+            position: relative;
+            cursor: help;
+        }
+        
+        .metric-tooltip:hover::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #333;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            white-space: nowrap;
+            z-index: 1000;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+
+        .analytics-card {
+            background: #f8f9fa;
+            padding: 8px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .analytics-card h3 {
+            margin-bottom: 6px;
+            color: #333;
+            font-size: 1.0rem;
+        }
+
+        .metric-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 3px;
+            padding: 2px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .metric-item:last-child {
+            border-bottom: none;
+        }
+
+        .metric-label {
+            font-weight: 600;
+            color: #555;
+        }
+
+        .metric-value {
+            color: #333;
+            font-weight: 500;
+        }
+
+        .insights-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .insights-list li {
+            padding: 10px;
+            margin-bottom: 8px;
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            border-radius: 4px;
+        }
+
+        .histogram-bar {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .histogram-label {
+            width: 80px;
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        .histogram-bar-fill {
+            height: 20px;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            border-radius: 4px;
+            margin-left: 10px;
+            min-width: 20px;
+        }
+
+        .role-flag {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+
+        .role-flag.host {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .role-flag.audience {
+            background: #e2e3e5;
+            color: #383d41;
         }
         
         .sessions-table {
@@ -464,6 +629,39 @@
                 <h2 id="channel-details-title"></h2>
                 <div id="channel-details-content"></div>
             </div>
+
+            <!-- User Analytics Section -->
+            <div class="analytics-section" id="user-analytics" style="display: none;">
+                <h2 id="user-analytics-title">User Analytics</h2>
+                <div id="user-analytics-content"></div>
+            </div>
+
+            <!-- Role Analytics Section -->
+            <div class="analytics-section" id="role-analytics" style="display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <div id="role-analytics-breadcrumb" style="color: #666; font-size: 14px;"></div>
+                </div>
+                <h2 id="role-analytics-title">Role & Product Analytics</h2>
+                <div id="role-analytics-content"></div>
+            </div>
+
+            <!-- Quality Metrics Section -->
+            <div class="analytics-section" id="quality-metrics" style="display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <div id="quality-metrics-breadcrumb" style="color: #666; font-size: 14px;"></div>
+                </div>
+                <h2 id="quality-metrics-title">Quality & Health Indicators</h2>
+                <div id="quality-metrics-content"></div>
+            </div>
+            
+            <!-- Multi-User Analytics Section -->
+            <div class="analytics-section" id="multi-user-analytics" style="display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <div id="multi-user-breadcrumb" style="color: #666; font-size: 14px;"></div>
+                </div>
+                <h2 id="multi-user-title">Multi-User Analytics</h2>
+                <div id="multi-user-content"></div>
+            </div>
         </div>
     </div>
 
@@ -480,13 +678,28 @@
             const appId = urlParams.get('appId');
             const channel = urlParams.get('channel');
             const sessionId = urlParams.get('sessionId');
+            const uid = urlParams.get('uid');
+            const view = urlParams.get('view');
             const page = urlParams.get('page') || '1';
             
             if (appId) {
                 document.getElementById('appId').value = appId;
                 currentAppId = appId;
                 
-                if (channel) {
+                if (view === 'user-analytics' && uid) {
+                    // Load user analytics directly
+                    showUserAnalytics(uid);
+                } else if (view === 'role-analytics' && channel) {
+                    // Load role analytics directly with session context
+                    currentChannel = channel;
+                    currentSessionId = sessionId;
+                    showRoleAnalytics(channel);
+                } else if (view === 'quality-metrics' && channel) {
+                    // Load quality metrics directly with session context
+                    currentChannel = channel;
+                    currentSessionId = sessionId;
+                    showQualityMetrics(channel);
+                } else if (channel) {
                     currentChannel = channel;
                     currentSessionId = sessionId;
                     // Load channel details directly
@@ -669,10 +882,34 @@
         // Copy current URL to clipboard
         function copyPermalink() {
             const url = window.location.href;
+            const button = event.target;
+            const originalText = button.textContent;
+            
+            // Check if clipboard API is available
+            if (!navigator.clipboard) {
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = url;
+                document.body.appendChild(textArea);
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    button.textContent = 'Copied!';
+                    button.style.background = '#28a745';
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                        button.style.background = '';
+                    }, 2000);
+                } catch (err) {
+                    console.error('Failed to copy URL:', err);
+                    showError('Failed to copy URL to clipboard');
+                }
+                document.body.removeChild(textArea);
+                return;
+            }
+            
             navigator.clipboard.writeText(url).then(() => {
                 // Show a temporary success message
-                const button = event.target;
-                const originalText = button.textContent;
                 button.textContent = 'Copied!';
                 button.style.background = '#28a745';
                 setTimeout(() => {
@@ -682,6 +919,9 @@
             }).catch(err => {
                 console.error('Failed to copy URL:', err);
                 showError('Failed to copy URL to clipboard');
+                // Reset button even on error
+                button.textContent = originalText;
+                button.style.background = '';
             });
         }
         
@@ -749,10 +989,25 @@
             console.log('Content innerHTML length:', content.innerHTML.length);
             console.log('Content innerHTML preview:', content.innerHTML.substring(0, 200));
             
+            // Add analytics buttons
+            const analyticsButtons = `
+                <div style="margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
+                    <button class="btn analytics-btn" data-action="role" data-channel="${data.channel_name}" style="background: linear-gradient(135deg, #28a745, #20c997);">
+                        👥 Role Analytics
+                    </button>
+                    <button class="btn analytics-btn" data-action="quality" data-channel="${data.channel_name}" style="background: linear-gradient(135deg, #fd7e14, #e83e8c);">
+                        📊 Quality Metrics
+                    </button>
+                    <button class="btn analytics-btn" data-action="multi-user" data-channel="${data.channel_name}" style="background: linear-gradient(135deg, #6f42c1, #20c997);">
+                        👥👥 Multi-User View
+                    </button>
+                </div>
+            `;
+            
             if (data.sessions.length === 0) {
-                content.innerHTML = '<div class="no-data">No sessions found for this channel</div>';
+                content.innerHTML = analyticsButtons + '<div class="no-data">No sessions found for this channel</div>';
             } else {
-                content.innerHTML = `
+                content.innerHTML = analyticsButtons + `
                     <div style="margin-bottom: 20px;">
                         <div class="channel-stats">
                             <div class="stat">
@@ -848,7 +1103,12 @@
                                 
                                 return `
                                 <tr>
-                                    <td>${session.uid}</td>
+                                    <td>
+                                        <button class="btn" onclick="showUserAnalytics(${session.uid})" style="margin-right: 8px; padding: 4px 8px; font-size: 0.8rem; background: linear-gradient(135deg, #6f42c1, #e83e8c);">
+                                            📊
+                                        </button>
+                                        ${session.uid}
+                                    </td>
                                     <td class="account-cell" data-full-account="${accountValue}" title="${accountValue}">
                                         ${accountDisplay}
                                     </td>
@@ -873,11 +1133,650 @@
         function showChannelsView() {
             currentChannel = null;
             currentSessionId = null;
-            updateURL(currentAppId, null, null, currentPage);
+            
+            // Clear URL parameters completely
+            const url = new URL(window.location);
+            url.search = `?appId=${currentAppId}`;
+            window.history.pushState({}, '', url.toString());
+            
+            // Hide all analytics sections first and remove show class
+            const analyticsSections = ['user-analytics', 'role-analytics', 'quality-metrics', 'multi-user-analytics'];
+            analyticsSections.forEach(sectionId => {
+                const element = document.getElementById(sectionId);
+                element.style.display = 'none';
+                element.classList.remove('show');
+            });
+            
+            document.getElementById('channel-details').style.display = 'none';
+            document.getElementById('channel-details').classList.remove('show');
+            
+            // Show results container and channels view
+            document.getElementById('results').style.display = 'block';
             document.getElementById('channels-view').style.display = 'block';
-            const channelDetails = document.getElementById('channel-details');
-            channelDetails.style.display = 'none';
-            channelDetails.classList.remove('show');
+            
+            // Reset statistics and clear content
+            resetAnalyticsContent();
+        }
+        
+        function resetAnalyticsContent() {
+            // Clear all analytics content
+            document.getElementById('user-analytics-content').innerHTML = '';
+            document.getElementById('role-analytics-content').innerHTML = '';
+            document.getElementById('quality-metrics-content').innerHTML = '';
+            document.getElementById('multi-user-content').innerHTML = '';
+            
+            // Reset titles
+            document.getElementById('user-analytics-title').textContent = 'User Analytics';
+            document.getElementById('role-analytics-title').textContent = 'Role & Product Analytics';
+            document.getElementById('quality-metrics-title').textContent = 'Quality & Health Indicators';
+            document.getElementById('multi-user-title').textContent = 'Multi-User Analytics';
+            
+            // Reset breadcrumbs
+            document.getElementById('role-analytics-breadcrumb').textContent = '';
+            document.getElementById('quality-metrics-breadcrumb').textContent = '';
+            document.getElementById('multi-user-breadcrumb').textContent = '';
+            
+            // Hide all analytics sections completely and remove show class
+            const analyticsSections = ['user-analytics', 'role-analytics', 'quality-metrics', 'multi-user-analytics'];
+            analyticsSections.forEach(sectionId => {
+                const element = document.getElementById(sectionId);
+                element.style.display = 'none';
+                element.classList.remove('show');
+            });
+            
+            // Reset page title
+            document.title = 'Agora Webhooks Dashboard';
+        }
+        
+        async function showMultiUserAnalytics(channelName) {
+            console.log('showMultiUserAnalytics called with channelName:', channelName);
+            console.log('currentAppId:', currentAppId);
+            
+            try {
+                showLoading();
+                
+                // Fetch multi-user analytics data
+                const response = await fetch(`/api/channel/${currentAppId}/${channelName}/multi-user?session_id=${currentSessionId}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                console.log('Multi-user analytics data received:', data);
+                
+                displayMultiUserAnalytics(data, channelName);
+                hideLoading();
+                
+                // Show the multi-user analytics section
+                document.getElementById('results').style.display = 'block';
+                document.getElementById('channels-view').style.display = 'none';
+                document.getElementById('channel-details').style.display = 'none';
+                document.getElementById('user-analytics').style.display = 'none';
+                document.getElementById('role-analytics').style.display = 'none';
+                document.getElementById('quality-metrics').style.display = 'none';
+                document.getElementById('multi-user-analytics').style.display = 'block';
+                
+                // Update URL
+                const url = `?appId=${currentAppId}&channel=${channelName}&view=multi-user&sessionId=${currentSessionId}`;
+                window.history.pushState({}, '', url);
+                
+                // Auto-scroll to analytics section
+                document.getElementById('multi-user-analytics').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                
+            } catch (error) {
+                console.error('Error loading multi-user analytics:', error);
+                showError('Failed to load multi-user analytics: ' + error.message);
+                hideLoading();
+            }
+        }
+        
+        function displayMultiUserAnalytics(data, channelName) {
+            document.getElementById('multi-user-title').textContent = `Multi-User Analytics: ${channelName}`;
+            document.getElementById('multi-user-breadcrumb').textContent = `Channel: ${channelName} | Session: ${currentSessionId}`;
+            
+            // Store all users for selection
+            window.allUsers = data.users;
+            window.selectedUsers = []; // Track selected users to prevent duplicates
+            
+            const content = document.getElementById('multi-user-content');
+            content.innerHTML = `
+                <div class="multi-user-grid">
+                    ${[1, 2, 3, 4].map(panelNum => `
+                        <div class="user-card" id="user-panel-${panelNum}">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <h4>👤 Panel ${panelNum}</h4>
+                                <select class="user-selector" data-panel="${panelNum}" onchange="updateUserPanel(${panelNum}, this.value)" style="padding: 4px 8px; font-size: 0.9rem; border: 1px solid #ddd; border-radius: 4px;">
+                                    <option value="">Select User...</option>
+                                    ${data.users.map((user, index) => `
+                                        <option value="${index}" ${index < 4 ? 'selected' : ''}>User ${user.uid} (${user.total_active_minutes}min)</option>
+                                    `).join('')}
+                                </select>
+                            </div>
+                            <div id="user-content-${panelNum}">
+                                ${panelNum <= 4 ? generateUserContent(data.users[panelNum - 1]) : '<div style="color: #999; font-style: italic;">No user selected</div>'}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+                <p style="text-align: center; color: #666; margin-top: 15px; font-size: 0.9rem;">
+                    Showing ${data.users.length} users available for selection
+                </p>
+            `;
+            
+            // Initialize selected users for first 4 panels (different users)
+            window.selectedUsers = [];
+            for (let i = 0; i < 4 && i < data.users.length; i++) {
+                window.selectedUsers[i] = data.users[i].uid;
+            }
+            
+            // Set the initial dropdown values after DOM is ready
+            setTimeout(() => {
+                for (let i = 1; i <= 4; i++) {
+                    const select = document.querySelector(`select[data-panel="${i}"]`);
+                    if (select && i <= data.users.length) {
+                        select.value = i - 1; // Set to the user index
+                        // Also update the content for this panel
+                        const user = data.users[i - 1];
+                        const contentDiv = document.getElementById(`user-content-${i}`);
+                        if (contentDiv && user) {
+                            contentDiv.innerHTML = generateUserContent(user);
+                        }
+                    }
+                }
+            }, 100);
+        }
+        
+        function generateUserContent(user) {
+            if (!user) return '<div style="color: #999; font-style: italic;">No user selected</div>';
+            
+            // Get the most common platform and convert to readable name
+            const platformEntries = Object.entries(user.platform_distribution);
+            const mostCommonPlatformId = platformEntries.length > 0 ? 
+                platformEntries.reduce((a, b) => a[1] > b[1] ? a : b)[0] : 'Unknown';
+            
+            // Convert platform ID to readable name
+            const platformMap = {
+                "1": "Web",
+                "2": "iOS", 
+                "3": "Android",
+                "4": "Windows",
+                "5": "macOS",
+                "6": "Linux",
+                "7": "WebRTC"
+            };
+            const mostCommonPlatform = platformMap[mostCommonPlatformId] || mostCommonPlatformId;
+            
+            return `
+                <div class="user-metric">
+                    <span>Channels Joined:</span>
+                    <span>${user.total_channels_joined}</span>
+                </div>
+                <div class="user-metric">
+                    <span>Active Minutes:</span>
+                    <span>${user.total_active_minutes}</span>
+                </div>
+                <div class="user-metric">
+                    <span>Role Switches:</span>
+                    <span>${user.total_role_switches}</span>
+                </div>
+                <div class="user-metric">
+                    <span>Platform:</span>
+                    <span>${mostCommonPlatform}</span>
+                </div>
+                <div class="user-metric">
+                    <span>Failed Calls:</span>
+                    <span>${user.failed_calls}</span>
+                </div>
+                <div class="user-metric">
+                    <span>Churn Events:</span>
+                    <span>${user.churn_events}</span>
+                </div>
+            `;
+        }
+        
+        function updateUserPanel(panelNum, userIndex) {
+            const contentDiv = document.getElementById(`user-content-${panelNum}`);
+            
+            if (userIndex === '' || userIndex === null) {
+                // Clear selection
+                window.selectedUsers[panelNum - 1] = null;
+                contentDiv.innerHTML = '<div style="color: #999; font-style: italic;">No user selected</div>';
+            } else {
+                const user = window.allUsers[parseInt(userIndex)];
+                const selectedUid = user.uid;
+                
+                // Check if user is already selected in another panel
+                const existingIndex = window.selectedUsers.indexOf(selectedUid);
+                if (existingIndex !== -1 && existingIndex !== panelNum - 1) {
+                    // User is already selected, swap the panels
+                    const otherPanelNum = existingIndex + 1;
+                    const otherUser = window.allUsers.find(u => u.uid === window.selectedUsers[panelNum - 1]);
+                    
+                    // Update the other panel
+                    if (otherUser) {
+                        document.getElementById(`user-content-${otherPanelNum}`).innerHTML = generateUserContent(otherUser);
+                        document.querySelector(`select[data-panel="${otherPanelNum}"]`).value = window.allUsers.findIndex(u => u.uid === otherUser.uid);
+                    } else {
+                        document.getElementById(`user-content-${otherPanelNum}`).innerHTML = '<div style="color: #999; font-style: italic;">No user selected</div>';
+                        document.querySelector(`select[data-panel="${otherPanelNum}"]`).value = '';
+                    }
+                }
+                
+                // Update current panel
+                window.selectedUsers[panelNum - 1] = selectedUid;
+                contentDiv.innerHTML = generateUserContent(user);
+            }
+            
+            // Update all dropdowns to reflect current selections
+            updateAllDropdowns();
+        }
+        
+        function updateAllDropdowns() {
+            // Update all dropdowns to show available users (not already selected)
+            for (let i = 1; i <= 4; i++) {
+                const select = document.querySelector(`select[data-panel="${i}"]`);
+                if (select) {
+                    const currentValue = select.value;
+                    const options = select.querySelectorAll('option');
+                    
+                    options.forEach((option, index) => {
+                        if (index === 0) return; // Skip "Select User..." option
+                        
+                        const user = window.allUsers[index - 1];
+                        const isSelected = window.selectedUsers.includes(user.uid);
+                        const isCurrentPanel = window.selectedUsers[i - 1] === user.uid;
+                        
+                        if (isSelected && !isCurrentPanel) {
+                            option.style.display = 'none';
+                            option.disabled = true;
+                        } else {
+                            option.style.display = 'block';
+                            option.disabled = false;
+                        }
+                    });
+                }
+            }
+        }
+
+        // Handle browser back/forward buttons
+        window.addEventListener('popstate', function(event) {
+            console.log('Browser navigation detected:', event.state);
+            if (event.state) {
+                const { appId, channel, sessionId, page, view } = event.state;
+                if (view === 'channels') {
+                    showChannelsView();
+                } else if (view === 'channel-details' && channel) {
+                    loadChannelDetails(appId, channel, sessionId);
+                } else if (view === 'user-analytics' && sessionId) {
+                    // sessionId contains uid for user analytics
+                    showUserAnalytics(sessionId);
+                } else if (view === 'role-analytics' && channel) {
+                    showRoleAnalytics(channel);
+                } else if (view === 'quality-metrics' && channel) {
+                    showQualityMetrics(channel);
+                } else if (channel) {
+                    // If we have a channel but no specific view, go to channel details
+                    loadChannelDetails(appId, channel, sessionId);
+                } else {
+                    // Fallback to channels view if state is invalid
+                    showChannelsView();
+                }
+            } else {
+                showChannelsView();
+            }
+        });
+
+        async function showUserAnalytics(uid) {
+            try {
+                showLoading();
+                const response = await fetch(`/api/user/${currentAppId}/${uid}/detailed`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                const data = await response.json();
+                displayUserAnalytics(data, uid);
+                hideLoading();
+            } catch (error) {
+                console.error('Error loading user analytics:', error);
+                showError(`Failed to load user analytics: ${error.message}`);
+                hideLoading();
+                // Show back button on error
+                showChannelsView();
+            }
+        }
+
+        function displayUserAnalytics(data, uid) {
+            document.getElementById('user-analytics-title').textContent = `User Analytics: ${data.uid}`;
+            
+            const content = document.getElementById('user-analytics-content');
+            content.innerHTML = `
+                <div class="analytics-grid">
+                    <div class="analytics-card">
+                        <h3>📊 Overview</h3>
+                        <div class="metric-item">
+                            <span class="metric-label">Channels Joined</span>
+                            <span class="metric-value">${data.total_channels_joined}</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Total Active Minutes</span>
+                            <span class="metric-value">${data.total_active_minutes}</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Role Switches</span>
+                            <span class="metric-value">${data.total_role_switches}</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Avg Session Length</span>
+                            <span class="metric-value">${data.avg_session_length} min</span>
+                        </div>
+                    </div>
+
+                    <div class="analytics-card">
+                        <h3>📱 Platform Distribution</h3>
+                        ${Object.entries(data.platform_distribution).map(([platform, count]) => `
+                            <div class="metric-item">
+                                <span class="metric-label">${platform}</span>
+                                <span class="metric-value">${count} sessions</span>
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    <div class="analytics-card">
+                        <h3>🔧 Product Usage</h3>
+                        ${Object.entries(data.product_breakdown).map(([product, minutes]) => `
+                            <div class="metric-item">
+                                <span class="metric-label">${product}</span>
+                                <span class="metric-value">${minutes} min</span>
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    <div class="analytics-card">
+                        <h3>📈 Quality Metrics</h3>
+                        <div class="metric-item">
+                            <span class="metric-label metric-tooltip" data-tooltip="Users frequently joining/leaving (reason=999) - indicates network issues or connection problems">Churn Events</span>
+                            <span class="metric-value">${data.churn_events}</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label metric-tooltip" data-tooltip="Sessions shorter than 5 seconds - likely failed connection attempts or technical issues">Failed Calls</span>
+                            <span class="metric-value">${data.failed_calls}</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label metric-tooltip" data-tooltip="Score indicating abnormal user behavior patterns (0 = normal, higher = more abnormal)">Spike Score</span>
+                            <span class="metric-value">${data.spike_detection_score}</span>
+                        </div>
+                    </div>
+
+                    <div class="analytics-card">
+                        <h3>📋 Channels List</h3>
+                        ${data.channels_list.map(channel => `
+                            <div class="metric-item">
+                                <span class="metric-label">
+                                    ${channel.channel_name}
+                                    ${channel.is_host ? '<span class="role-flag host">Host</span>' : '<span class="role-flag audience">Audience</span>'}
+                                </span>
+                                <span class="metric-value">${channel.total_minutes} min (${channel.session_count} sessions)</span>
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    ${data.quality_insights.length > 0 ? `
+                    <div class="analytics-card">
+                        <h3>⚠️ Quality Insights</h3>
+                        <ul class="insights-list">
+                            ${data.quality_insights.map(insight => `<li>${insight}</li>`).join('')}
+                        </ul>
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+
+            // Show the analytics section
+            document.getElementById('channels-view').style.display = 'none';
+            document.getElementById('results').style.display = 'block'; // Make sure results container is visible
+            const userAnalyticsSection = document.getElementById('user-analytics');
+            userAnalyticsSection.style.display = 'block';
+            userAnalyticsSection.classList.add('show');
+            
+            // Scroll to user analytics section
+            setTimeout(() => {
+                userAnalyticsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 100);
+            
+            // Update browser history
+            const state = { appId: currentAppId, channel: currentChannel, sessionId: uid, page: currentPage, view: 'user-analytics' };
+            window.history.pushState(state, '', `/?appId=${currentAppId}&uid=${uid}&view=user-analytics`);
+        }
+
+        async function showRoleAnalytics(channelName) {
+            console.log('showRoleAnalytics called with channelName:', channelName);
+            console.log('currentAppId:', currentAppId);
+            try {
+                showLoading();
+                const response = await fetch(`/api/channel/${currentAppId}/${channelName}/role-analytics?session_id=${currentSessionId}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                const data = await response.json();
+                displayRoleAnalytics(data, channelName);
+                hideLoading();
+            } catch (error) {
+                console.error('Error loading role analytics:', error);
+                showError(`Failed to load role analytics: ${error.message}`);
+                hideLoading();
+                // Show back button on error
+                showChannelsView();
+            }
+        }
+
+        function displayRoleAnalytics(data, channelName) {
+            console.log('displayRoleAnalytics called with data:', data);
+            console.log('channelName:', channelName);
+            document.getElementById('role-analytics-title').textContent = `Role & Product Analytics: ${data.channel_name}`;
+            
+            const content = document.getElementById('role-analytics-content');
+            console.log('role-analytics-content element:', content);
+            
+            const htmlContent = `
+                <div class="analytics-grid">
+                    <div class="analytics-card">
+                        <h3>👥 Role Breakdown</h3>
+                        <div class="metric-item">
+                            <span class="metric-label">Total Minutes</span>
+                            <span class="metric-value">${data.total_minutes}</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Host Minutes</span>
+                            <span class="metric-value">${data.host_minutes}</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Audience Minutes</span>
+                            <span class="metric-value">${data.audience_minutes}</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Role Switches</span>
+                            <span class="metric-value">${data.role_switches}</span>
+                        </div>
+                    </div>
+
+                    <div class="analytics-card">
+                        <h3>🔧 Product Usage</h3>
+                        ${Object.entries(data.product_breakdown).map(([product, minutes]) => `
+                            <div class="metric-item">
+                                <span class="metric-label">${product}</span>
+                                <span class="metric-value">${minutes} min</span>
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    <div class="analytics-card">
+                        <h3>📱 Platform Usage</h3>
+                        ${Object.entries(data.platform_breakdown).map(([platform, minutes]) => `
+                            <div class="metric-item">
+                                <span class="metric-label">${platform}</span>
+                                <span class="metric-value">${minutes} min</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+            
+            console.log('Generated HTML content length:', htmlContent.length);
+            console.log('HTML content preview:', htmlContent.substring(0, 200));
+            content.innerHTML = htmlContent;
+            console.log('Content innerHTML after assignment:', content.innerHTML.length, 'characters');
+            
+            // Test if content is visible
+            console.log('Content element offsetHeight:', content.offsetHeight);
+            console.log('Content element scrollHeight:', content.scrollHeight);
+            console.log('Content element clientHeight:', content.clientHeight);
+
+            // Show the analytics section
+            document.getElementById('channels-view').style.display = 'none';
+            document.getElementById('results').style.display = 'block'; // Make sure results container is visible
+            const roleAnalyticsSection = document.getElementById('role-analytics');
+            roleAnalyticsSection.style.display = 'block';
+            roleAnalyticsSection.classList.add('show');
+            
+            console.log('Analytics section after show:', roleAnalyticsSection);
+            console.log('Analytics section computed style:', window.getComputedStyle(roleAnalyticsSection).display);
+            console.log('Analytics section parent:', roleAnalyticsSection.parentElement);
+            
+            // Analytics section is now visible
+            console.log('Analytics section is now visible');
+            
+            console.log('Role analytics section display style:', document.getElementById('role-analytics').style.display);
+            console.log('Role analytics section classes:', document.getElementById('role-analytics').className);
+            
+            // Analytics content is now visible
+            setTimeout(() => {
+                console.log('Analytics content height:', content.offsetHeight);
+                console.log('Analytics section height:', document.getElementById('role-analytics').offsetHeight);
+                
+                // Scroll to analytics section
+                roleAnalyticsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 100);
+            
+            // Update page title to show current channel and session context
+            const sessionContext = currentSessionId ? ` (Session: ${currentSessionId})` : '';
+            document.title = `Role Analytics - ${channelName}${sessionContext} | Agora Webhooks Dashboard`;
+            
+            // Update breadcrumb to show session context
+            const breadcrumb = currentSessionId ? 
+                `Channel: ${channelName} | Session: ${currentSessionId}` : 
+                `Channel: ${channelName}`;
+            document.getElementById('role-analytics-breadcrumb').textContent = breadcrumb;
+            
+            // Update browser history with session context
+            const state = { appId: currentAppId, channel: channelName, sessionId: currentSessionId, page: currentPage, view: 'role-analytics' };
+            const sessionParam = currentSessionId ? `&sessionId=${currentSessionId}` : '';
+            window.history.pushState(state, '', `/?appId=${currentAppId}&channel=${channelName}&view=role-analytics${sessionParam}`);
+        }
+
+        async function showQualityMetrics(channelName) {
+            console.log('showQualityMetrics called with channelName:', channelName);
+            console.log('currentAppId:', currentAppId);
+            try {
+                showLoading();
+                const response = await fetch(`/api/channel/${currentAppId}/${channelName}/quality-metrics?session_id=${currentSessionId}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                const data = await response.json();
+                displayQualityMetrics(data, channelName);
+                hideLoading();
+            } catch (error) {
+                console.error('Error loading quality metrics:', error);
+                showError(`Failed to load quality metrics: ${error.message}`);
+                hideLoading();
+                // Show back button on error
+                showChannelsView();
+            }
+        }
+
+        function displayQualityMetrics(data, channelName) {
+            document.getElementById('quality-metrics-title').textContent = `Quality & Health Indicators: ${data.channel_name}`;
+            
+            const content = document.getElementById('quality-metrics-content');
+            content.innerHTML = `
+                <div class="analytics-grid">
+                    <div class="analytics-card">
+                        <h3>📊 Quality Overview</h3>
+                        <div class="metric-item">
+                            <span class="metric-label">Quality Score</span>
+                            <span class="metric-value">${data.quality_score}/100</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Avg Session Length</span>
+                            <span class="metric-value">${data.avg_user_session_length} min</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Max Concurrent Users</span>
+                            <span class="metric-value">${data.max_concurrent_users}</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Churn Events</span>
+                            <span class="metric-value">${data.churn_events}</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Failed Calls</span>
+                            <span class="metric-value">${data.failed_calls}</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Test Channels</span>
+                            <span class="metric-value">${data.test_channels}</span>
+                        </div>
+                    </div>
+
+                    <div class="analytics-card">
+                        <h3>📈 Session Length Distribution</h3>
+                        ${Object.entries(data.session_length_histogram).map(([range, count]) => `
+                            <div class="histogram-bar">
+                                <span class="histogram-label">${range}</span>
+                                <div class="histogram-bar-fill" style="width: ${Math.max(20, (count / Math.max(...Object.values(data.session_length_histogram))) * 200)}px">
+                                    <span style="margin-left: 8px; color: white; font-size: 0.8rem;">${count}</span>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    ${data.insights.length > 0 ? `
+                    <div class="analytics-card">
+                        <h3>⚠️ Quality Insights</h3>
+                        <ul class="insights-list">
+                            ${data.insights.map(insight => `<li>${insight}</li>`).join('')}
+                        </ul>
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+
+            // Show the analytics section
+            document.getElementById('channels-view').style.display = 'none';
+            document.getElementById('results').style.display = 'block'; // Make sure results container is visible
+            const qualityMetricsSection = document.getElementById('quality-metrics');
+            qualityMetricsSection.style.display = 'block';
+            qualityMetricsSection.classList.add('show');
+            
+            // Scroll to quality metrics section
+            setTimeout(() => {
+                qualityMetricsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 100);
+            
+            // Update page title to show current channel and session context
+            const sessionContext = currentSessionId ? ` (Session: ${currentSessionId})` : '';
+            document.title = `Quality Metrics - ${channelName}${sessionContext} | Agora Webhooks Dashboard`;
+            
+            // Update breadcrumb to show session context
+            const breadcrumb = currentSessionId ? 
+                `Channel: ${channelName} | Session: ${currentSessionId}` : 
+                `Channel: ${channelName}`;
+            document.getElementById('quality-metrics-breadcrumb').textContent = breadcrumb;
+            
+            // Update browser history with session context
+            const state = { appId: currentAppId, channel: channelName, sessionId: currentSessionId, page: currentPage, view: 'quality-metrics' };
+            const sessionParam = currentSessionId ? `&sessionId=${currentSessionId}` : '';
+            window.history.pushState(state, '', `/?appId=${currentAppId}&channel=${channelName}&view=quality-metrics${sessionParam}`);
         }
         
         function showChannelDetails() {
@@ -928,8 +1827,20 @@
             const errorDiv = document.getElementById('error');
             errorDiv.textContent = message;
             errorDiv.style.display = 'block';
+            errorDiv.style.color = '#d32f2f';
+            errorDiv.style.backgroundColor = '#ffebee';
+            errorDiv.style.border = '1px solid #f44336';
         }
-        
+
+        function showSuccess(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+            errorDiv.style.color = '#2e7d32';
+            errorDiv.style.backgroundColor = '#e8f5e8';
+            errorDiv.style.border = '1px solid #4caf50';
+        }
+
         function hideError() {
             document.getElementById('error').style.display = 'none';
         }
@@ -1040,8 +1951,15 @@
                 });
                 
                 if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+                    let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+                    try {
+                        const errorData = await response.json();
+                        errorMessage = errorData.detail || errorData.message || errorMessage;
+                    } catch (e) {
+                        // If JSON parsing fails, use the status text
+                        console.warn('Could not parse error response as JSON:', e);
+                    }
+                    throw new Error(errorMessage);
                 }
                 
                 if (format === 'csv') {
@@ -1053,18 +1971,20 @@
                     // Get record count from response headers or estimate
                     const recordCount = response.headers.get('X-Total-Records') || 'multiple files';
                     hideExportSection();
-                    showError(`Export completed! ${recordCount} records exported as ZIP file.`);
+                    showSuccess(`Export completed! ${recordCount} records exported as ZIP file.`);
                 } else {
                     // Handle JSON export - download single file
                     const data = await response.json();
                     downloadJSONFile(data, appId, startDate, endDate);
                     
                     hideExportSection();
-                    showError(`Export completed! ${data.export_info ? data.export_info.total_records : 0} records exported.`);
+                    showSuccess(`Export completed! ${data.export_info ? data.export_info.total_records : 0} records exported.`);
                 }
                 
             } catch (error) {
-                showError(`Export failed: ${error.message}`);
+                console.error('Export error:', error);
+                const errorMessage = error.message || error.toString() || 'Unknown error occurred';
+                showError(`Export failed: ${errorMessage}`);
             } finally {
                 hideLoading();
             }
@@ -1104,6 +2024,27 @@
         // Initialize page from URL parameters when page loads
         document.addEventListener('DOMContentLoaded', function() {
             initializeFromURL();
+            
+            // Add event delegation for analytics buttons
+            document.addEventListener('click', function(event) {
+                console.log('Click detected on:', event.target);
+                if (event.target.classList.contains('analytics-btn')) {
+                    const action = event.target.getAttribute('data-action');
+                    const channel = event.target.getAttribute('data-channel');
+                    console.log('Analytics button clicked:', { action, channel });
+                    
+                    if (action === 'role' && channel) {
+                        console.log('Calling showRoleAnalytics with channel:', channel);
+                        showRoleAnalytics(channel);
+                    } else if (action === 'quality' && channel) {
+                        console.log('Calling showQualityMetrics with channel:', channel);
+                        showQualityMetrics(channel);
+                    } else if (action === 'multi-user' && channel) {
+                        console.log('Calling showMultiUserAnalytics with channel:', channel);
+                        showMultiUserAnalytics(channel);
+                    }
+                }
+            });
         });
     </script>
 </body>

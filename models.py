@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List, Union
+from typing import Optional, List, Union, Dict, Any
 from datetime import datetime
 
 class WebhookPayload(BaseModel):
@@ -97,3 +97,43 @@ class ExportResponse(BaseModel):
     date_range: str
     channel_filter: Optional[str] = None
     created_at: datetime
+
+class UserDetailResponse(BaseModel):
+    """Response model for detailed user analytics"""
+    uid: int
+    app_id: str
+    total_channels_joined: int
+    total_active_minutes: float
+    total_role_switches: int
+    platform_distribution: Dict[str, int]
+    avg_session_length: float
+    spike_detection_score: float
+    churn_events: int
+    failed_calls: int
+    product_breakdown: Dict[str, float]
+    channels_list: List[Dict[str, Any]]
+    quality_insights: List[str]
+
+class RoleAnalyticsResponse(BaseModel):
+    """Response model for role and product analytics"""
+    channel_name: str
+    total_minutes: float
+    host_minutes: float
+    audience_minutes: float
+    role_switches: int
+    product_breakdown: Dict[str, float]
+    platform_breakdown: Dict[str, float]
+
+class QualityMetricsResponse(BaseModel):
+    """Response model for quality and health indicators"""
+    channel_name: str
+    avg_user_session_length: float
+    avg_join_to_media_time: float
+    max_concurrent_users: int
+    churn_events: int
+    failed_calls: int
+    test_channels: int
+    session_length_histogram: Dict[str, int]
+    peak_concurrent_time: Optional[datetime]
+    quality_score: float
+    insights: List[str]
