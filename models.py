@@ -40,6 +40,8 @@ class ChannelSessionResponse(BaseModel):
     reason: Optional[int]
     client_type: Optional[int]
     communication_mode: Optional[int] = None
+    is_host: Optional[bool] = None
+    role_switches: Optional[int] = 0
 
 class ChannelMetricsResponse(BaseModel):
     """Response model for channel metrics"""
@@ -76,6 +78,15 @@ class ChannelDetailResponse(BaseModel):
     total_minutes: float
     unique_users: int
     sessions: List[ChannelSessionResponse]
+    # Role-split metrics
+    host_minutes: Optional[float] = 0.0
+    audience_minutes: Optional[float] = 0.0
+    unique_hosts: Optional[int] = 0
+    unique_audiences: Optional[int] = 0
+    # Channel metrics
+    channel_duration_minutes: Optional[float] = None  # Wall time = max(leave_ts) - min(join_ts)
+    user_minutes_sum: Optional[float] = None  # Sum of all user durations
+    utilization: Optional[float] = None  # user-minutes / wall-minutes
 
 class ExportRequest(BaseModel):
     """Request model for data export"""
@@ -122,6 +133,7 @@ class RoleAnalyticsResponse(BaseModel):
     host_minutes: float
     audience_minutes: float
     role_switches: int
+    wall_clock_minutes: Optional[float] = None  # Channel elapsed time = max(leave) - min(join)
     product_breakdown: Dict[str, float]
     platform_breakdown: Dict[str, float]
 
@@ -136,5 +148,6 @@ class QualityMetricsResponse(BaseModel):
     test_channels: int
     session_length_histogram: Dict[str, int]
     peak_concurrent_time: Optional[datetime]
+    concurrency_over_time: Optional[List[List[float]]] = None  # List of [timestamp, count] pairs
     quality_score: float
     insights: List[str]

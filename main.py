@@ -15,7 +15,7 @@ from sqlalchemy import func, desc
 import uvicorn
 
 from config import Config
-from database import get_db, create_tables, ChannelSession, ChannelMetrics, UserMetrics, WebhookEvent
+from database import get_db, create_tables, ChannelSession, ChannelMetrics, UserMetrics, WebhookEvent, RoleEvent
 from models import WebhookRequest, ChannelSessionResponse, ChannelMetricsResponse, UserMetricsResponse, ChannelListResponse, ChannelDetailResponse, ExportRequest, ExportResponse, UserDetailResponse, RoleAnalyticsResponse, QualityMetricsResponse
 from webhook_processor import WebhookProcessor
 from export_service import ExportService
@@ -31,6 +31,146 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+def calculate_role_minutes_from_events(sessions, role_events, channel_session_id, db=None):
+    """Calculate host/audience minutes by splitting user presence segments at role changes"""
+    host_minutes = 0.0
+    audience_minutes = 0.0
+    
+    # Group sessions by user
+    user_sessions = {}
+    for session in sessions:
+        if session.uid not in user_sessions:
+            user_sessions[session.uid] = []
+        user_sessions[session.uid].append(session)
+    
+    # Process each user's sessions
+    for uid, user_session_list in user_sessions.items():
+        # Get role events for this user in this channel session, sorted by timestamp
+        user_role_events = [
+            re for re in role_events 
+            if re.uid == uid and re.channel_session_id == channel_session_id
+        ]
+        user_role_events.sort(key=lambda x: x.ts)
+        
+        # Process each session for this user
+        for session in user_session_list:
+            if not session.join_time or not session.leave_time:
+                continue
+            
+            join_ts = int(session.join_time.timestamp())
+            leave_ts = int(session.leave_time.timestamp())
+            
+            # Get role events that occurred during this session
+            session_role_events = [
+                re for re in user_role_events
+                if join_ts <= re.ts <= leave_ts
+            ]
+            
+            # Determine initial role: look at join webhook event if available, otherwise infer from first role event
+            initial_role = None
+            if db:
+                # Try to find the join event for this session
+                join_event = db.query(WebhookEvent).filter(
+                    WebhookEvent.app_id == session.app_id,
+                    WebhookEvent.channel_name == session.channel_name,
+                    WebhookEvent.channel_session_id == channel_session_id,
+                    WebhookEvent.uid == uid,
+                    WebhookEvent.event_type.in_([103, 105, 107]),  # Join events
+                    WebhookEvent.ts >= join_ts - 5,  # Allow small time difference
+                    WebhookEvent.ts <= join_ts + 5
+                ).order_by(WebhookEvent.ts).first()
+                
+                if join_event:
+                    # 103/107 = host, 105 = audience
+                    initial_role = 'host' if join_event.event_type in [103, 107] else 'audience'
+            
+            # If couldn't determine from join event, infer from first role event or use session.is_host
+            if initial_role is None:
+                if session_role_events:
+                    # If first role event switches TO host (111), initial was audience
+                    # If first role event switches TO audience (112), initial was host
+                    first_event = session_role_events[0]
+                    initial_role = 'audience' if first_event.new_role == 111 else 'host'
+                else:
+                    # No role events, use session.is_host (which should reflect initial role)
+                    initial_role = 'host' if session.is_host else 'audience'
+            
+            # If no role events, use the entire session duration with initial role
+            if not session_role_events:
+                duration_minutes = (session.duration_seconds or 0) / 60.0
+                if initial_role == 'host':
+                    host_minutes += duration_minutes
+                else:
+                    audience_minutes += duration_minutes
+                continue
+            
+            # Split session at role change points
+            current_role = initial_role
+            last_ts = join_ts
+            for role_event in session_role_events:
+                # Calculate duration from last_ts to this role event
+                if last_ts < role_event.ts:
+                    segment_duration = (role_event.ts - last_ts) / 60.0
+                    if current_role == 'host':
+                        host_minutes += segment_duration
+                    else:
+                        audience_minutes += segment_duration
+                    
+                    last_ts = role_event.ts
+                
+                # Update current role based on event
+                current_role = 'host' if role_event.new_role == 111 else 'audience'
+            
+            # Add remaining segment from last role event to leave
+            if last_ts < leave_ts:
+                segment_duration = (leave_ts - last_ts) / 60.0
+                if current_role == 'host':
+                    host_minutes += segment_duration
+                else:
+                    audience_minutes += segment_duration
+    
+    return host_minutes, audience_minutes
+
+def calculate_max_concurrency(sessions):
+    """Calculate max concurrent users from join/leave pairs"""
+    if not sessions:
+        return 0, None, []
+    
+    # Collect all join/leave events with timestamps
+    events = []
+    for session in sessions:
+        if session.join_time:
+            events.append(('join', session.join_time.timestamp(), session.uid))
+        if session.leave_time:
+            events.append(('leave', session.leave_time.timestamp(), session.uid))
+    
+    if not events:
+        return 0, None, []
+    
+    # Sort events by timestamp
+    events.sort(key=lambda x: x[1])
+    
+    # Track concurrent users at each point
+    active_users = set()
+    max_concurrent = 0
+    peak_time = None
+    concurrency_over_time = []  # List of (timestamp, count) tuples
+    
+    for event_type, timestamp, uid in events:
+        if event_type == 'join':
+            active_users.add(uid)
+        else:  # leave
+            active_users.discard(uid)
+        
+        current_count = len(active_users)
+        concurrency_over_time.append((timestamp, current_count))
+        
+        if current_count > max_concurrent:
+            max_concurrent = current_count
+            peak_time = datetime.fromtimestamp(timestamp)
+    
+    return max_concurrent, peak_time, concurrency_over_time
 
 def analyze_user_reconnection_patterns(sessions, uid):
     """Analyze user reconnection patterns and burst behavior within the same call"""
@@ -365,18 +505,93 @@ async def get_channel_details(app_id: str, channel_name: str, session_id: str = 
                 platform=session.platform,
                 reason=session.reason,
                 client_type=session.client_type,
-                communication_mode=session.communication_mode
+                communication_mode=session.communication_mode,
+                is_host=session.is_host,
+                role_switches=session.role_switches or 0
             ))
         
-        # Calculate total metrics
-        total_minutes = sum(s.duration_seconds or 0 for s in sessions) / 60.0
-        unique_users = len(set(s.uid for s in sessions))
+        # Get ALL sessions for this channel (not filtered by session_id) for metrics calculation
+        all_sessions_query = db.query(ChannelSession).filter(
+            ChannelSession.app_id == app_id,
+            ChannelSession.channel_name == channel_name
+        )
+        all_sessions = all_sessions_query.all()
+        
+        # Calculate total metrics across ALL sessions
+        total_minutes = sum(s.duration_seconds or 0 for s in all_sessions) / 60.0
+        unique_users = len(set(s.uid for s in all_sessions))
+        
+        # Get all role events for this channel (across all sessions)
+        all_role_events = db.query(RoleEvent).filter(
+            RoleEvent.app_id == app_id,
+            RoleEvent.channel_name == channel_name
+        ).all()
+        
+        # Group sessions by channel_session_id for role calculation
+        sessions_by_session_id = {}
+        for s in all_sessions:
+            if s.channel_session_id not in sessions_by_session_id:
+                sessions_by_session_id[s.channel_session_id] = []
+            sessions_by_session_id[s.channel_session_id].append(s)
+        
+        # Calculate role-split metrics using role_events if available
+        host_minutes = 0.0
+        audience_minutes = 0.0
+        
+        if all_role_events:
+            # Calculate role minutes for each channel_session_id
+            for ch_session_id, ch_sessions in sessions_by_session_id.items():
+                ch_role_events = [re for re in all_role_events if re.channel_session_id == ch_session_id]
+                if ch_role_events:
+                    h_min, a_min = calculate_role_minutes_from_events(ch_sessions, ch_role_events, ch_session_id, db)
+                    host_minutes += h_min
+                    audience_minutes += a_min
+                else:
+                    # Fallback for sessions without role events
+                    h_min = sum((s.duration_seconds or 0) for s in ch_sessions if s.is_host) / 60.0
+                    a_min = sum((s.duration_seconds or 0) for s in ch_sessions if not s.is_host) / 60.0
+                    host_minutes += h_min
+                    audience_minutes += a_min
+        else:
+            # Fallback: use session-based calculation
+            host_minutes = sum((s.duration_seconds or 0) for s in all_sessions if s.is_host) / 60.0
+            audience_minutes = total_minutes - host_minutes
+        
+        unique_hosts = len(set(s.uid for s in all_sessions if s.is_host))
+        unique_audiences = len(set(s.uid for s in all_sessions if not s.is_host))
+        
+        # Calculate channel metrics (wall time, user-minutes sum, utilization) across ALL sessions
+        channel_duration_minutes = None
+        user_minutes_sum = total_minutes  # Same as total_minutes (sum of all durations)
+        utilization = None
+        
+        if all_sessions:
+            # Find min join_time and max leave_time across all sessions
+            join_times = [s.join_time for s in all_sessions if s.join_time]
+            leave_times = [s.leave_time for s in all_sessions if s.leave_time and s.leave_time]
+            
+            if join_times and leave_times:
+                min_join = min(join_times)
+                max_leave = max(leave_times)
+                channel_duration_seconds = (max_leave - min_join).total_seconds()
+                channel_duration_minutes = channel_duration_seconds / 60.0
+                
+                # Calculate utilization: user-minutes / wall-minutes
+                if channel_duration_minutes > 0:
+                    utilization = user_minutes_sum / channel_duration_minutes
         
         return ChannelDetailResponse(
             channel_name=channel_name,
             total_minutes=total_minutes,
             unique_users=unique_users,
-            sessions=session_responses
+            sessions=session_responses,
+            host_minutes=round(host_minutes, 2),
+            audience_minutes=round(audience_minutes, 2),
+            unique_hosts=unique_hosts,
+            unique_audiences=unique_audiences,
+            channel_duration_minutes=round(channel_duration_minutes, 2) if channel_duration_minutes else None,
+            user_minutes_sum=round(user_minutes_sum, 2),
+            utilization=round(utilization, 3) if utilization else None
         )
         
     except Exception as e:
@@ -582,11 +797,42 @@ async def get_channel_role_analytics(app_id: str, channel_name: str, session_id:
         if not sessions:
             raise HTTPException(status_code=404, detail="Channel not found")
         
+        # Get channel_session_id for filtering role events
+        channel_session_id = sessions[0].channel_session_id if sessions else None
+        
+        # Get role events for this channel session if we have role events table
+        role_events = []
+        if channel_session_id:
+            role_events = db.query(RoleEvent).filter(
+                RoleEvent.app_id == app_id,
+                RoleEvent.channel_name == channel_name,
+                RoleEvent.channel_session_id == channel_session_id
+            ).all()
+        
         # Calculate role analytics
         total_minutes = sum(s.duration_seconds or 0 for s in sessions) / 60.0
-        host_minutes = sum((s.duration_seconds or 0) for s in sessions if s.is_host) / 60.0
-        audience_minutes = total_minutes - host_minutes
-        total_role_switches = sum(s.role_switches or 0 for s in sessions)
+        
+        # Use role_events to calculate role minutes if available, otherwise fall back to session-based calculation
+        if role_events:
+            host_minutes, audience_minutes = calculate_role_minutes_from_events(sessions, role_events, channel_session_id, db)
+        else:
+            # Fallback: use session-based calculation
+            host_minutes = sum((s.duration_seconds or 0) for s in sessions if s.is_host) / 60.0
+            audience_minutes = total_minutes - host_minutes
+        
+        total_role_switches = len(role_events) if role_events else sum(s.role_switches or 0 for s in sessions)
+        
+        # Calculate wall clock time (channel elapsed time) = max(leave) - min(join) for this channel_session_id
+        wall_clock_minutes = None
+        if sessions:
+            join_times = [s.join_time for s in sessions if s.join_time]
+            leave_times = [s.leave_time for s in sessions if s.leave_time and s.leave_time]
+            
+            if join_times and leave_times:
+                min_join = min(join_times)
+                max_leave = max(leave_times)
+                wall_clock_seconds = (max_leave - min_join).total_seconds()
+                wall_clock_minutes = wall_clock_seconds / 60.0
         
         # Product breakdown
         product_breakdown = {}
@@ -609,6 +855,7 @@ async def get_channel_role_analytics(app_id: str, channel_name: str, session_id:
             host_minutes=round(host_minutes, 2),
             audience_minutes=round(audience_minutes, 2),
             role_switches=total_role_switches,
+            wall_clock_minutes=round(wall_clock_minutes, 2) if wall_clock_minutes else None,
             product_breakdown={k: round(v, 2) for k, v in product_breakdown.items()},
             platform_breakdown={k: round(v, 2) for k, v in platform_breakdown.items()}
         )
@@ -678,8 +925,8 @@ async def get_channel_quality_metrics(app_id: str, channel_name: str, session_id
         failed_calls = len([s for s in sessions if (s.duration_seconds or 0) < 5])
         test_channels = 1 if len(set(s.uid for s in sessions)) == 1 else 0
         
-        # Calculate max concurrent users (simplified - would need more complex logic for real implementation)
-        max_concurrent_users = len(set(s.uid for s in sessions))
+        # Calculate max concurrent users from join/leave pairs
+        max_concurrent_users, peak_concurrent_time, concurrency_over_time = calculate_max_concurrency(sessions)
         
         # Calculate quality score (0-100) based on reason codes
         quality_score = 100
@@ -762,6 +1009,9 @@ async def get_channel_quality_metrics(app_id: str, channel_name: str, session_id
         else:
             insights.append("🟢 Good quality indicators")
         
+        # Convert tuples to lists for JSON serialization
+        concurrency_data = [[ts, count] for ts, count in concurrency_over_time] if concurrency_over_time else None
+        
         return QualityMetricsResponse(
             channel_name=channel_name,
             avg_user_session_length=round(avg_user_session_length, 2),
@@ -771,7 +1021,8 @@ async def get_channel_quality_metrics(app_id: str, channel_name: str, session_id
             failed_calls=failed_calls,
             test_channels=test_channels,
             session_length_histogram=histogram,
-            peak_concurrent_time=None,  # Would need additional tracking
+            peak_concurrent_time=peak_concurrent_time,
+            concurrency_over_time=concurrency_data,
             quality_score=round(quality_score, 1),
             insights=insights
         )

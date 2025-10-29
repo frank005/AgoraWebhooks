@@ -127,6 +127,13 @@ These indicate positive user experience and normal behavior.
 
 ## Additional Quality Metrics
 
+### Concurrent Users
+- **Definition**: Maximum number of users connected simultaneously during a channel session
+- **Calculation**: Calculated from join/leave event pairs, tracking active users at each timestamp
+- **Display**: Shows peak concurrent users and the timestamp when it occurred
+- **Visualization**: Time-series graph showing concurrent users over the duration of the call
+- **Tooltip**: "Peak number of users connected simultaneously - shows channel capacity and popularity"
+
 ### Failed Calls
 - **Definition**: Sessions shorter than 5 seconds
 - **Impact**: -5 points per failed call (max -30)

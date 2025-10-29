@@ -19,6 +19,9 @@ A comprehensive Python-based webhook server for receiving and processing Agora v
 - **Mobile Responsive**: Works perfectly on desktop and mobile devices
 - **Shareable Links**: Permalink functionality for sharing specific channels with team members
 - **Visual Channel Flags**: Color-coded indicators showing client types (Cloud Recording, Media Push/Pull, Conversational AI, etc.)
+- **Role Analytics**: Track host vs audience minutes with role switching detection
+- **Concurrent Users Graph**: Visualize concurrent users over time for each channel session
+- **Role Indicators**: Visual mic/ear icons showing user roles (🎤 Host, 👂 Audience) with stacked indicators for role switches
 
 ### Data Management
 - **SQLite Database**: Lightweight, file-based database for easy deployment
@@ -150,7 +153,9 @@ curl -X POST https://your-domain.com/your-app-id/webhooks \
 ### API Endpoints
 
 - `GET /api/channels/{app_id}` - Get list of channels for an App ID with pagination
-- `GET /api/channel/{app_id}/{channel_name}` - Get detailed channel information
+- `GET /api/channel/{app_id}/{channel_name}` - Get detailed channel information with role-split metrics
+- `GET /api/channel/{app_id}/{channel_name}/role-analytics` - Get role and product analytics with wall clock time
+- `GET /api/channel/{app_id}/{channel_name}/quality-metrics` - Get quality metrics with concurrent users graph data
 - `GET /api/user/{app_id}/{uid}` - Get user metrics and session history
 - `GET /health` - Health check endpoint
 - `GET /debug/cache` - Debug cache status
@@ -199,7 +204,13 @@ curl -X POST https://your-domain.com/your-app-id/webhooks \
   - Events 103/104: Broadcaster Join/Leave → ILS/Host
   - Events 105/106: Audience Join/Leave → ILS/Audience
   - Events 107/108: Communication Join/Leave → RTC/Host
+  - Events 111/112: Role Change → Tracks role switches (broadcaster ↔ audience)
 - **Smart Session Assignment**: Correctly assigns users to channel sessions even when leave events arrive after channel destroy events
+- **Role Indicators**: Visual icons in session tables:
+  - 🎤 **Mic icon** (purple circle) = Host/Broadcaster
+  - 👂 **Ear icon** (blue circle) = Audience/Listener
+  - **Stacked icons** = Role switch detected (bottom = initial role, top = final role)
+- **Role-Split Metrics**: Separate tracking of host minutes, audience minutes, unique hosts, and unique audiences
 
 ### Visual Channel Flags
 - **Client Type Indicators**: Color-coded flags showing what types of clients were used
@@ -215,6 +226,7 @@ curl -X POST https://your-domain.com/your-app-id/webhooks \
   - 🌐 **Media Gateway** (gray) - Client type 50
   - 📹 **Local Recording** (yellow) - Client type 3
   - 📱 **Applets** (pink) - Client type 8
+- **Raw Numeric Values**: Platform and Product ID display includes raw numeric values in muted text (e.g., "Web (7)", "RTC (1)") to avoid mapping errors
 
 ### Duplicate Prevention
 - **In-memory caching**: Fast detection of recent duplicate webhooks

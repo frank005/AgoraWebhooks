@@ -192,6 +192,26 @@ class UserAnalytics(Base):
         Index('idx_app_uid_unique', 'app_id', 'uid', unique=True),
     )
 
+class RoleEvent(Base):
+    """Role change events (111/112) to track role switches"""
+    __tablename__ = "role_events"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    app_id = Column(String(50), nullable=False, index=True)
+    channel_name = Column(String(255), nullable=False, index=True)
+    channel_session_id = Column(String(100), nullable=True, index=True)
+    uid = Column(Integer, nullable=False, index=True)
+    ts = Column(Integer, nullable=False, index=True)  # Unix timestamp
+    new_role = Column(Integer, nullable=False)  # 111=broadcaster, 112=audience
+    
+    # Metadata
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Indexes
+    __table_args__ = (
+        Index('idx_role_channel_session_uid_ts', 'channel_session_id', 'uid', 'ts'),
+    )
+
 class QualityMetrics(Base):
     """Channel and session quality metrics"""
     __tablename__ = "quality_metrics"

@@ -1030,14 +1030,30 @@
             } else {
                 content.innerHTML = analyticsButtons + `
                     <div style="margin-bottom: 20px;">
-                        <div class="channel-stats">
+                        <div class="channel-stats" style="grid-template-columns: repeat(7, 1fr); gap: 8px;">
                             <div class="stat">
                                 <div class="stat-value">${data.total_minutes.toFixed(1)}</div>
                                 <div class="stat-label">Total Minutes</div>
                             </div>
                             <div class="stat">
+                                <div class="stat-value">${(data.host_minutes || 0).toFixed(1)}</div>
+                                <div class="stat-label">Host Minutes</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-value">${(data.audience_minutes || 0).toFixed(1)}</div>
+                                <div class="stat-label">Audience Minutes</div>
+                            </div>
+                            <div class="stat">
                                 <div class="stat-value">${data.unique_users}</div>
                                 <div class="stat-label">Unique Users</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-value">${data.unique_hosts || 0}</div>
+                                <div class="stat-label">Unique Hosts</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-value">${data.unique_audiences || 0}</div>
+                                <div class="stat-label">Unique Audiences</div>
                             </div>
                             <div class="stat">
                                 <div class="stat-value">${data.sessions.length}</div>
@@ -1049,6 +1065,7 @@
                     <table class="sessions-table">
                         <thead>
                             <tr>
+                                <th style="width: 40px;"></th>
                                 <th>User ID</th>
                                 <th>Account</th>
                                 <th>Platform</th>
@@ -1115,6 +1132,38 @@
                                 const productName = session.product_id ? 
                                     (productNames[session.product_id] || session.product_id) : 'N/A';
                                 
+                                // Determine role for colored dot
+                                // RTC mode (communication_mode=1) is always host
+                                // Otherwise check is_host flag
+                                const isHost = session.communication_mode === 1 || (session.is_host === true);
+                                const roleSwitches = session.role_switches || 0;
+                                
+                                // Create role indicator with icon + color
+                                // Mic icon (🎤) for Host, Ear icon (👂) for Audience
+                                let roleIndicator = '';
+                                if (roleSwitches > 0) {
+                                    // Show stacked icons: bottom = initial role, top = final role
+                                    const finalIcon = isHost ? '🎤' : '👂';
+                                    const initialIcon = isHost ? '👂' : '🎤';
+                                    const finalColor = isHost ? '#9333ea' : '#3b82f6';
+                                    const initialColor = isHost ? '#3b82f6' : '#9333ea';
+                                    roleIndicator = `<span aria-label="Role switched ${roleSwitches} time(s)" title="Role switched ${roleSwitches} time(s) - Started as ${isHost ? 'Audience' : 'Host'}, ended as ${isHost ? 'Host' : 'Audience'}" style="display: inline-flex; flex-direction: column; align-items: center; margin-right: 6px; vertical-align: middle; line-height: 0.8; gap: 1px;">
+                                        <span style="font-size: 0.7em; opacity: 0.6;">${initialIcon}</span>
+                                        <span style="font-size: 0.85em;">${finalIcon}</span>
+                                    </span>`;
+                                } else {
+                                    // Single icon with colored background
+                                    const icon = isHost ? '🎤' : '👂';
+                                    const bgColor = isHost ? '#9333ea' : '#3b82f6';
+                                    roleIndicator = `<span aria-label="${isHost ? 'Host' : 'Audience'}" title="${isHost ? 'Host (Broadcaster)' : 'Audience (Listener)'}" style="display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: ${bgColor}; margin-right: 6px; vertical-align: middle; font-size: 0.85em; color: white; line-height: 1;">${icon}</span>`;
+                                }
+                                
+                                // Show raw numeric values
+                                const platformDisplay = session.platform !== null && session.platform !== undefined ? 
+                                    `${platformName} <span style="color: #999; font-size: 0.85em;">(${session.platform})</span>` : 'N/A';
+                                const productDisplay = session.product_id !== null && session.product_id !== undefined ? 
+                                    `${productName} <span style="color: #999; font-size: 0.85em;">(${session.product_id})</span>` : 'N/A';
+                                
                                 // Handle account display with truncation
                                 const accountValue = session.uid && session.uid.toString().length > 8 ? session.uid : '';
                                 const accountDisplay = accountValue ? 
@@ -1124,17 +1173,20 @@
                                 
                                 return `
                                 <tr>
-                                    <td>
-                                        <button class="btn" onclick="showUserAnalytics(${session.uid})" style="margin-right: 8px; padding: 4px 8px; font-size: 0.8rem; background: linear-gradient(135deg, #6f42c1, #e83e8c);">
+                                    <td style="text-align: center; padding: 4px;">
+                                        <button class="btn" onclick="showUserAnalytics(${session.uid})" style="padding: 2px 6px; font-size: 0.7rem; background: linear-gradient(135deg, #6f42c1, #e83e8c);" title="View Analytics">
                                             📊
                                         </button>
+                                    </td>
+                                    <td>
+                                        ${roleIndicator}
                                         ${session.uid}
                                     </td>
                                     <td class="account-cell" data-full-account="${accountValue}" title="${accountValue}">
                                         ${accountDisplay}
                                     </td>
-                                    <td>${platformName}</td>
-                                    <td>${productName}</td>
+                                    <td>${platformDisplay}</td>
+                                    <td>${productDisplay}</td>
                                     <td>${session.reason || 'N/A'}</td>
                                     <td>${new Date(session.join_time).toLocaleString()}</td>
                                     <td>${session.leave_time ? new Date(session.leave_time).toLocaleString() : 'Active'}</td>
@@ -1690,6 +1742,109 @@
             setTimeout(() => initializeTooltips(), 100);
             
         }
+        
+        function drawConcurrencyChart(concurrencyData) {
+            const canvas = document.getElementById('concurrency-chart');
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d');
+            const width = canvas.offsetWidth || 400;
+            const height = 200;
+            canvas.width = width;
+            canvas.height = height;
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, width, height);
+            
+            if (concurrencyData.length === 0) return;
+            
+            // Convert timestamps to relative times (minutes from start)
+            const startTime = concurrencyData[0][0];
+            const endTime = concurrencyData[concurrencyData.length - 1][0];
+            const timeRange = endTime - startTime;
+            const maxConcurrent = Math.max(...concurrencyData.map(d => d[1]));
+            
+            // Padding
+            const padding = { top: 20, right: 20, bottom: 30, left: 40 };
+            const chartWidth = width - padding.left - padding.right;
+            const chartHeight = height - padding.top - padding.bottom;
+            
+            // Draw axes
+            ctx.strokeStyle = '#ddd';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(padding.left, padding.top);
+            ctx.lineTo(padding.left, height - padding.bottom);
+            ctx.lineTo(width - padding.right, height - padding.bottom);
+            ctx.stroke();
+            
+            // Draw grid lines and labels
+            ctx.fillStyle = '#666';
+            ctx.font = '10px sans-serif';
+            ctx.textAlign = 'right';
+            
+            // Y-axis labels
+            for (let i = 0; i <= 5; i++) {
+                const y = padding.top + (chartHeight / 5) * i;
+                const value = Math.round(maxConcurrent * (1 - i / 5));
+                ctx.fillText(value.toString(), padding.left - 5, y + 3);
+                
+                if (i > 0) {
+                    ctx.strokeStyle = '#eee';
+                    ctx.beginPath();
+                    ctx.moveTo(padding.left, y);
+                    ctx.lineTo(width - padding.right, y);
+                    ctx.stroke();
+                }
+            }
+            
+            // X-axis labels (time)
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#666';
+            for (let i = 0; i <= 4; i++) {
+                const x = padding.left + (chartWidth / 4) * i;
+                const timeOffset = (timeRange / 4) * i;
+                const minutes = Math.round(timeOffset / 60);
+                ctx.fillText(minutes + 'm', x, height - padding.bottom + 15);
+            }
+            
+            // Draw line
+            ctx.strokeStyle = '#667eea';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            
+            for (let i = 0; i < concurrencyData.length; i++) {
+                const [timestamp, count] = concurrencyData[i];
+                const x = padding.left + ((timestamp - startTime) / timeRange) * chartWidth;
+                const y = padding.top + chartHeight - (count / maxConcurrent) * chartHeight;
+                
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            ctx.stroke();
+            
+            // Fill area under line
+            ctx.fillStyle = 'rgba(102, 126, 234, 0.2)';
+            ctx.lineTo(width - padding.right, height - padding.bottom);
+            ctx.lineTo(padding.left, height - padding.bottom);
+            ctx.closePath();
+            ctx.fill();
+            
+            // Draw points
+            ctx.fillStyle = '#667eea';
+            for (let i = 0; i < concurrencyData.length; i++) {
+                const [timestamp, count] = concurrencyData[i];
+                const x = padding.left + ((timestamp - startTime) / timeRange) * chartWidth;
+                const y = padding.top + chartHeight - (count / maxConcurrent) * chartHeight;
+                
+                ctx.beginPath();
+                ctx.arc(x, y, 3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
 
         async function showRoleAnalytics(channelName) {
 
@@ -1740,6 +1895,12 @@
                             <span class="metric-label">Role Switches</span>
                             <span class="metric-value">${data.role_switches}</span>
                         </div>
+                        ${data.wall_clock_minutes ? `
+                        <div class="metric-item">
+                            <span class="metric-label">Wall Clock Time</span>
+                            <span class="metric-value">${data.wall_clock_minutes} min</span>
+                        </div>
+                        ` : ''}
                     </div>
 
                     <div class="analytics-card">
@@ -1845,6 +2006,16 @@
             document.getElementById('quality-metrics-title').textContent = `Quality & Health Indicators: ${data.channel_name}`;
             
             const content = document.getElementById('quality-metrics-content');
+            
+            // Format peak time if available
+            let peakTimeDisplay = '';
+            if (data.peak_concurrent_time) {
+                const d = new Date(data.peak_concurrent_time);
+                const dateStr = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}/${String(d.getFullYear()).slice(-2)}`;
+                const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }).replace(/\s/g, '');
+                peakTimeDisplay = '<span style="font-size: 0.75em; color: #999; margin-left: 8px; font-weight: normal;">• ' + dateStr + ', ' + timeStr + '</span>';
+            }
+            
             content.innerHTML = `
                 <div class="analytics-grid">
                     <div class="analytics-card">
@@ -1859,7 +2030,7 @@
                         </div>
                         <div class="metric-item">
                             <span class="metric-label metric-tooltip" data-tooltip="Peak number of users connected simultaneously - shows channel capacity and popularity">Max Concurrent Users</span>
-                            <span class="metric-value">${data.max_concurrent_users}</span>
+                            <span class="metric-value">${data.max_concurrent_users}${peakTimeDisplay}</span>
                         </div>
                         <div class="metric-item">
                             <span class="metric-label metric-tooltip" data-tooltip="Users frequently joining/leaving (reason=999) - indicates abnormal user behavior, network issues, or connection problems">Churn Events</span>
@@ -1874,6 +2045,15 @@
                             <span class="metric-value">${data.test_channels}</span>
                         </div>
                     </div>
+
+                    ${data.concurrency_over_time && data.concurrency_over_time.length > 0 ? `
+                    <div class="analytics-card">
+                        <h3>📈 Concurrent Users Over Time</h3>
+                        <div style="margin-top: 15px;">
+                            <canvas id="concurrency-chart" style="max-width: 100%; height: 200px;"></canvas>
+                        </div>
+                    </div>
+                    ` : ''}
 
                     <div class="analytics-card">
                         <h3>📈 Session Length Distribution</h3>
@@ -1928,6 +2108,12 @@
             // Initialize tooltips for the new content
             setTimeout(() => initializeTooltips(), 100);
             
+            // Draw concurrency chart if data available
+            if (data.concurrency_over_time && data.concurrency_over_time.length > 0) {
+                setTimeout(() => {
+                    drawConcurrencyChart(data.concurrency_over_time);
+                }, 200);
+            }
         }
         
         function showChannelDetails() {

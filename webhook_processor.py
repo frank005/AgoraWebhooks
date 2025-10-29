@@ -5,7 +5,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Dict, Any, Set
 from sqlalchemy.orm import Session
-from database import SessionLocal, WebhookEvent, ChannelSession, ChannelMetrics, UserMetrics
+from database import SessionLocal, WebhookEvent, ChannelSession, ChannelMetrics, UserMetrics, RoleEvent
 from models import WebhookRequest
 from mappings import log_unknown_values
 
@@ -554,6 +554,7 @@ class WebhookProcessor:
         channel_name = webhook_data.payload.channelName
         event_type = webhook_data.eventType
         ts = datetime.fromtimestamp(webhook_data.payload.ts)
+        ts_int = webhook_data.payload.ts
         
         # 111: client role change to broadcaster
         # 112: client role change to audience
@@ -563,6 +564,18 @@ class WebhookProcessor:
         # Role switches preserve the existing communication_mode from the session
         
         logger.info(f"Role change event: User {uid} changed to {role_change_type} in channel {channel_name} at {ts}, Product ID: {webhook_data.productId}, Platform: {webhook_data.payload.platform}, Reason: {webhook_data.payload.reason}")
+        
+        # Store role event in role_events table
+        role_event = RoleEvent(
+            app_id=app_id,
+            channel_name=channel_name,
+            channel_session_id=channel_session_id,
+            uid=uid,
+            ts=ts_int,
+            new_role=event_type
+        )
+        self.db.add(role_event)
+        logger.info(f"Stored role event for user {uid}: event_type={event_type} (111=broadcaster, 112=audience)")
         
         # Find the active session for this user and update role information
         active_session = self.db.query(ChannelSession).filter(
