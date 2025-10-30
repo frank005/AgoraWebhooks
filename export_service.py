@@ -187,6 +187,7 @@ class ExportService:
             "platform_name": get_platform_name(session.platform, session.client_type),
             "reason": session.reason,
             "client_type": session.client_type,
+            "account": session.account,  # Account field from webhook payload (string UID)
             "created_at": session.created_at.isoformat() if session.created_at else None,
             "updated_at": session.updated_at.isoformat() if session.updated_at else None
         }

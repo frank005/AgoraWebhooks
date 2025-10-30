@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import time
+import functools
 from datetime import datetime, timedelta
 from typing import Dict, Any
 from contextlib import asynccontextmanager
@@ -257,6 +258,23 @@ webhook_processor = WebhookProcessor()
 # Create FastAPI app
 app = FastAPI(title="Agora Webhooks Server", version="1.0.0")
 
+# Ensure UTF-8 encoding for JSON responses
+from fastapi.responses import JSONResponse as FastAPIJSONResponse
+import json as json_lib
+
+class UTF8JSONResponse(FastAPIJSONResponse):
+    def render(self, content) -> bytes:
+        return json_lib.dumps(
+            content,
+            ensure_ascii=False,
+            allow_nan=False,
+            indent=None,
+            separators=(",", ":"),
+            default=str
+        ).encode("utf-8")
+
+app.default_response_class = UTF8JSONResponse
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -273,15 +291,26 @@ rate_limit_storage = {}
 def rate_limit(max_requests: int = 100, window_seconds: int = 60):
     """Simple rate limiting decorator"""
     def decorator(func):
+        import functools
+        @functools.wraps(func)
         async def wrapper(*args, **kwargs):
-            # Get client IP
+            # Get client IP from Request object
             request = None
             for arg in args:
                 if isinstance(arg, Request):
                     request = arg
                     break
             
+            # Also check kwargs for Request
             if not request:
+                for key, value in kwargs.items():
+                    if isinstance(value, Request):
+                        request = value
+                        break
+            
+            if not request:
+                # If no Request found, try to get it from Depends
+                # This shouldn't happen, but handle gracefully
                 return await func(*args, **kwargs)
             
             client_ip = request.client.host if request.client else "unknown"
@@ -507,7 +536,8 @@ async def get_channel_details(app_id: str, channel_name: str, session_id: str = 
                 client_type=session.client_type,
                 communication_mode=session.communication_mode,
                 is_host=session.is_host,
-                role_switches=session.role_switches or 0
+                role_switches=session.role_switches or 0,
+                account=session.account
             ))
         
         # Get ALL sessions for this channel (not filtered by session_id) for metrics calculation
@@ -1231,44 +1261,44 @@ async def debug_cache():
 
 @app.post("/api/export/{app_id}")
 @rate_limit(max_requests=10, window_seconds=60)  # 10 exports per minute
-async def export_data(app_id: str, request: ExportRequest, db: Session = Depends(get_db)):
+async def export_data(app_id: str, request_body: ExportRequest, http_request: Request, db: Session = Depends(get_db)):
     """Export data for a specific App ID with optional filters"""
     try:
         # Set the app_id from the URL path
-        request.app_id = app_id
+        request_body.app_id = app_id
         
         # Parse string dates to datetime objects if they're strings
-        if isinstance(request.start_date, str):
-            request.start_date = datetime.fromisoformat(request.start_date.replace('Z', '+00:00'))
-        if isinstance(request.end_date, str):
-            request.end_date = datetime.fromisoformat(request.end_date.replace('Z', '+00:00'))
+        if isinstance(request_body.start_date, str):
+            request_body.start_date = datetime.fromisoformat(request_body.start_date.replace('Z', '+00:00'))
+        if isinstance(request_body.end_date, str):
+            request_body.end_date = datetime.fromisoformat(request_body.end_date.replace('Z', '+00:00'))
         
         # Validate export request for security
-        validation_result = ExportSecurity.validate_export_request(request.dict())
+        validation_result = ExportSecurity.validate_export_request(request_body.dict())
         if not validation_result['valid']:
             raise HTTPException(status_code=400, detail=f"Export validation failed: {', '.join(validation_result['errors'])}")
         
         # Use sanitized data
-        request = ExportRequest(**validation_result['sanitized_data'])
+        request_body = ExportRequest(**validation_result['sanitized_data'])
         
         # Validate request
-        if not request.start_date and not request.end_date:
+        if not request_body.start_date and not request_body.end_date:
             # Default to last 7 days if no date range provided
-            request.start_date = datetime.utcnow() - timedelta(days=7)
-            request.end_date = datetime.utcnow()
+            request_body.start_date = datetime.utcnow() - timedelta(days=7)
+            request_body.end_date = datetime.utcnow()
         
         # Create export service
         export_service = ExportService(db)
         
         # Generate export
-        export_result = export_service.export_data(request)
+        export_result = export_service.export_data(request_body)
         
         logger.info(f"Export completed for app_id {app_id}: {export_result.get('export_info', {}).get('total_records', 0)} records")
         
         # Handle CSV export (zip file)
-        if request.format.lower() == "csv" and "zip_file" in export_result:
+        if request_body.format.lower() == "csv" and "zip_file" in export_result:
             zip_data = export_result["zip_file"]
-            filename = f"agora_export_{app_id}_{request.start_date.strftime('%Y%m%d')}_to_{request.end_date.strftime('%Y%m%d')}.zip"
+            filename = f"agora_export_{app_id}_{request_body.start_date.strftime('%Y%m%d')}_to_{request_body.end_date.strftime('%Y%m%d')}.zip"
             total_records = export_result.get('export_info', {}).get('total_records', 0)
             return Response(
                 content=zip_data,
@@ -1340,23 +1370,23 @@ async def get_export_date_range(app_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/api/export/{app_id}/validate")
-async def validate_export_request(app_id: str, request: ExportRequest, db: Session = Depends(get_db)):
+async def validate_export_request(app_id: str, request_body: ExportRequest, db: Session = Depends(get_db)):
     """Validate export request and return limits information"""
     try:
         # Set the app_id from the URL path
-        request.app_id = app_id
+        request_body.app_id = app_id
         
         # Parse string dates to datetime objects if they're strings
-        if isinstance(request.start_date, str):
-            request.start_date = datetime.fromisoformat(request.start_date.replace('Z', '+00:00'))
-        if isinstance(request.end_date, str):
-            request.end_date = datetime.fromisoformat(request.end_date.replace('Z', '+00:00'))
+        if isinstance(request_body.start_date, str):
+            request_body.start_date = datetime.fromisoformat(request_body.start_date.replace('Z', '+00:00'))
+        if isinstance(request_body.end_date, str):
+            request_body.end_date = datetime.fromisoformat(request_body.end_date.replace('Z', '+00:00'))
         
         # Create export service
         export_service = ExportService(db)
         
         # Validate export limits
-        validation_result = export_service.validate_export_limits(request)
+        validation_result = export_service.validate_export_limits(request_body)
         
         return validation_result
         
@@ -1365,7 +1395,7 @@ async def validate_export_request(app_id: str, request: ExportRequest, db: Sessi
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/api/export/{app_id}/share")
-async def create_public_share(app_id: str, request: ExportRequest, db: Session = Depends(get_db)):
+async def create_public_share(app_id: str, request_body: ExportRequest, db: Session = Depends(get_db)):
     """Create a public share URL for filtered data"""
     try:
         # Set the app_id from the URL path

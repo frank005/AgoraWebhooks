@@ -640,7 +640,7 @@
                 <h2>Channels</h2>
                 <div class="channels-grid" id="channels-grid"></div>
                 <div class="pagination" id="pagination" style="display: none;">
-                    <button id="prev-page" onclick="changePage(-1)">? ? Previous</button>
+                    <button id="prev-page" onclick="changePage(-1)">← Previous</button>
                     <div class="pagination-info" id="pagination-info"></div>
                     <button id="next-page" onclick="changePage(1)">Next →</button>
                 </div>
@@ -1135,24 +1135,22 @@
                                 const isHost = session.communication_mode === 1 || (session.is_host === true);
                                 const roleSwitches = session.role_switches || 0;
                                 
-                                // Create role indicator with icon + color
+                                // Create role indicator with icon
                                 // Mic icon (🎤) for Host, Ear icon (👂) for Audience
                                 let roleIndicator = '';
                                 if (roleSwitches > 0) {
-                                    // Show stacked icons: bottom = initial role, top = final role
+                                    // Show transition: initial -> final role
                                     const finalIcon = isHost ? '🎤' : '👂';
                                     const initialIcon = isHost ? '👂' : '🎤';
-                                    const finalColor = isHost ? '#9333ea' : '#3b82f6';
-                                    const initialColor = isHost ? '#3b82f6' : '#9333ea';
-                                    roleIndicator = `<span aria-label="Role switched ${roleSwitches} time(s)" title="Role switched ${roleSwitches} time(s) - Started as ${isHost ? 'Audience' : 'Host'}, ended as ${isHost ? 'Host' : 'Audience'}" style="display: inline-flex; flex-direction: column; align-items: center; margin-right: 6px; vertical-align: middle; line-height: 0.8; gap: 1px;">
-                                        <span style="font-size: 0.7em; opacity: 0.6;">${initialIcon}</span>
+                                    roleIndicator = `<span aria-label="Role switched ${roleSwitches} time(s)" title="Role switched ${roleSwitches} time(s) - Started as ${isHost ? 'Audience' : 'Host'}, ended as ${isHost ? 'Host' : 'Audience'}" style="display: inline-flex; align-items: center; gap: 4px; margin-right: 6px; vertical-align: middle;">
+                                        <span style="font-size: 0.85em; opacity: 0.7;">${initialIcon}</span>
+                                        <span style="font-size: 0.7em; color: #666;">→</span>
                                         <span style="font-size: 0.85em;">${finalIcon}</span>
                                     </span>`;
                                 } else {
-                                    // Single icon with colored background
+                                    // Single icon without colored background (no role switches)
                                     const icon = isHost ? '🎤' : '👂';
-                                    const bgColor = isHost ? '#9333ea' : '#3b82f6';
-                                    roleIndicator = `<span aria-label="${isHost ? 'Host' : 'Audience'}" title="${isHost ? 'Host (Broadcaster)' : 'Audience (Listener)'}" style="display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: ${bgColor}; margin-right: 6px; vertical-align: middle; font-size: 0.85em; color: white; line-height: 1;">${icon}</span>`;
+                                    roleIndicator = `<span aria-label="${isHost ? 'Host' : 'Audience'}" title="${isHost ? 'Host (Broadcaster)' : 'Audience (Listener)'}" style="display: inline-flex; align-items: center; margin-right: 6px; vertical-align: middle; font-size: 0.85em;">${icon}</span>`;
                                 }
                                 
                                 // Show raw numeric values
@@ -1162,7 +1160,7 @@
                                     `${productName} <span style="color: #999; font-size: 0.85em;">(${session.product_id})</span>` : 'N/A';
                                 
                                 // Handle account display with truncation
-                                const accountValue = session.uid && session.uid.toString().length > 8 ? session.uid : '';
+                                const accountValue = session.account || '';
                                 const accountDisplay = accountValue ? 
                                     (accountValue.toString().length > 20 ? 
                                         accountValue.toString().substring(0, 20) + '...' : 
@@ -1171,7 +1169,7 @@
                                 return `
                                 <tr>
                                     <td style="text-align: center; padding: 4px;">
-                                        <button class="btn" onclick="showUserAnalytics(${session.uid})" style="padding: 2px 6px; font-size: 0.7rem; background: linear-gradient(135deg, #6f42c1, #e83e8c);" title="View Analytics">
+                                        <button class="btn" onclick="showUserAnalytics(${session.uid})" style="padding: 2px 6px; font-size: 0.7rem; background: linear-gradient(135deg, #6f42c1, #e83e8c);" title=\"View Analytics\">
                                             📊
                                         </button>
                                     </td>
@@ -2271,15 +2269,21 @@
             
             try {
                 const exportRequest = {
-                    app_id: appId,
                     start_date: startDate + 'T00:00:00Z',
                     end_date: endDate + 'T23:59:59Z',
-                    channel_name: channelName || null,
+                    channel_name: channelName && channelName.trim() ? channelName.trim() : null,
                     format: format,
                     include_webhook_events: includeWebhooks,
                     include_sessions: includeSessions,
                     include_metrics: includeMetrics
                 };
+                
+                // Remove null values to avoid validation issues
+                Object.keys(exportRequest).forEach(key => {
+                    if (exportRequest[key] === null || exportRequest[key] === undefined) {
+                        delete exportRequest[key];
+                    }
+                });
                 
                 const response = await fetch(`/api/export/${appId}`, {
                     method: 'POST',
@@ -2293,10 +2297,28 @@
                     let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
                     try {
                         const errorData = await response.json();
-                        errorMessage = errorData.detail || errorData.message || errorMessage;
+                        // Handle detail as array or string
+                        if (errorData.detail) {
+                            if (Array.isArray(errorData.detail)) {
+                                // FastAPI validation errors - extract field names and messages
+                                errorMessage = errorData.detail.map(err => {
+                                    if (typeof err === 'object') {
+                                        const field = err.loc ? err.loc.join('.') : 'unknown';
+                                        const msg = err.msg || 'Field required';
+                                        return `${field}: ${msg}`;
+                                    }
+                                    return String(err);
+                                }).join(', ');
+                            } else if (typeof errorData.detail === 'string') {
+                                errorMessage = errorData.detail;
+                            } else {
+                                errorMessage = JSON.stringify(errorData.detail);
+                            }
+                        } else if (errorData.message) {
+                            errorMessage = typeof errorData.message === 'string' ? errorData.message : JSON.stringify(errorData.message);
+                        }
                     } catch (e) {
                         // If JSON parsing fails, use the status text
-
                     }
                     throw new Error(errorMessage);
                 }
@@ -2395,7 +2417,7 @@
     
     <!-- Jump to Top Button -->
     <button class="jump-to-top" id="jumpToTop" onclick="scrollToTop()" title="Jump to Top">
-        ?
+        ↑
     </button>
 </body>
 </html>

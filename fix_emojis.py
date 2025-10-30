@@ -122,10 +122,26 @@ def fix_all_emojis():
         (r"Next\s*(\?|\?\?)</button>", "Next →</button>"),
         (r">(\?|\?\?)\s*Back to Channels</button>", ">← Back to Channels</button>"),
         (r"Jump to Top\">(\?|\?\?)", "Jump to Top\">↑"),
+        # Analytics buttons
+        (r">(\?\?|:'\(|\\?\\?)\\s*Role Analytics</button>", r">👥 Role Analytics</button>"),
+        (r">(\?\?|\\?\\?)\\s*Quality Metrics</button>", r">📊 Quality Metrics</button>"),
+        (r">(\?\?\?\?|\\?\\?\\?\\?)\\s*Multi-User View</button>", r">👥👥 Multi-User View</button>"),
+        (r"title=\"View Analytics\">\s*📊\?", r"title=\"View Analytics\">\n                                            📊"),
         # Analytics button
         (r'onclick="showUserAnalytics\(\$\{session\.uid\}\)"[^>]*>\s*(\?|\?\?)', r'onclick="showUserAnalytics(${session.uid})" style="padding: 2px 6px; font-size: 0.7rem; background: linear-gradient(135deg, #6f42c1, #e83e8c);" title="View Analytics">\n                                            📊'),
-        # Date formatting bullet
-        (r"peakTimeDisplay\s*=\s*'<span[^>]*>(\?|\?\?)\s*'", r"peakTimeDisplay = '<span style=\"font-size: 0.75em; color: #999; margin-left: 8px; font-weight: normal;\">• "),
+        # Role switch emojis - microphone and ear
+        (r"isHost \? 'M-pM-\^_M-\^NM-\$' : 'M-pM-\^_M-\^QM-\^B'", r"isHost ? '🎤' : '👂'"),
+        (r"isHost \? 'M-pM-\^_M-\^QM-\^B' : 'M-pM-\^_M-\^NM-\$'", r"isHost ? '👂' : '🎤'"),
+        # Role transition arrow
+        (r'<span style="font-size: 0\.7em; color: #666;">(\?|\?\?)</span>', r'<span style="font-size: 0.7em; color: #666;">→</span>'),
+        # Date formatting bullet - SIMPLE pattern catch bullet + spaces + + anywhere
+        (r'•\s{2,}\+\s*dateStr', r"• ' + dateStr"),
+        # Date formatting bullet - handle missing quote before + (MOST COMMON - catch this FIRST)
+        (r"peakTimeDisplay\s*=\s*'<span[^>]*>(?:•|M-bM-\^@M-\")\s{2,}\+\s*dateStr", r"peakTimeDisplay = '<span style=\"font-size: 0.75em; color: #999; margin-left: 8px; font-weight: normal;\">• ' + dateStr"),
+        (r"peakTimeDisplay\s*=\s*'<span[^>]*>\?\s{2,}\+\s*dateStr", r"peakTimeDisplay = '<span style=\"font-size: 0.75em; color: #999; margin-left: 8px; font-weight: normal;\">• ' + dateStr"),
+        (r"peakTimeDisplay\s*=\s*'<span[^>]*>(\?|\?\?)\s*\+\s*dateStr", r"peakTimeDisplay = '<span style=\"font-size: 0.75em; color: #999; margin-left: 8px; font-weight: normal;\">• ' + dateStr"),
+        (r"peakTimeDisplay\s*=\s*'<span[^>]*>•\s{2,}\+", r"peakTimeDisplay = '<span style=\"font-size: 0.75em; color: #999; margin-left: 8px; font-weight: normal;\">• ' +"),
+        (r"peakTimeDisplay\s*=\s*'<span[^>]*>(\?|\?\?)\s*'", r"peakTimeDisplay = '<span style=\"font-size: 0.75em; color: #999; margin-left: 8px; font-weight: normal;\">• '"),
     ]
     
     html_fixed_count = 0
@@ -158,7 +174,11 @@ def verify_emojis():
         with open(filepath, 'r', encoding='utf-8') as f:
             content = f.read()
         
-        broken = content.count('??') + content.count('? ')
+        # Count broken emojis - only look for actual broken patterns
+        # Count ?? patterns (these are definitely broken)
+        broken = content.count('??')
+        # Don't count ? as broken unless it's clearly part of a broken emoji pattern
+        # JavaScript ternary operators use '? ' which is not a broken emoji
         working = sum(1 for emoji in expected_emojis if emoji in content)
         
         if broken > 0:

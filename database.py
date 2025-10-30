@@ -71,6 +71,7 @@ class ChannelSession(Base):
     platform = Column(Integer, nullable=True)
     reason = Column(Integer, nullable=True)
     client_type = Column(Integer, nullable=True)
+    account = Column(String(255), nullable=True)  # Account field from webhook payload (string UID)
     
     # Role and communication mode tracking
     communication_mode = Column(Integer, nullable=True)  # 0=audience, 1=host/broadcaster

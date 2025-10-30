@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Optional, List, Union, Dict, Any
 from datetime import datetime
 
@@ -15,6 +15,7 @@ class WebhookPayload(BaseModel):
     reason: Optional[int] = None
     duration: Optional[int] = None
     clientType: Optional[int] = None
+    account: Optional[str] = None  # Account field from Agora webhook (string UID)
 
 class WebhookRequest(BaseModel):
     """Pydantic model for complete Agora webhook request"""
@@ -42,6 +43,7 @@ class ChannelSessionResponse(BaseModel):
     communication_mode: Optional[int] = None
     is_host: Optional[bool] = None
     role_switches: Optional[int] = 0
+    account: Optional[str] = None  # Account field from webhook payload (string UID)
 
 class ChannelMetricsResponse(BaseModel):
     """Response model for channel metrics"""
@@ -90,7 +92,7 @@ class ChannelDetailResponse(BaseModel):
 
 class ExportRequest(BaseModel):
     """Request model for data export"""
-    app_id: str
+    app_id: Optional[str] = None  # Can be provided in URL path or body
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     channel_name: Optional[str] = None
@@ -98,6 +100,31 @@ class ExportRequest(BaseModel):
     include_webhook_events: bool = True
     include_sessions: bool = True
     include_metrics: bool = True
+    
+    @field_validator('start_date', 'end_date', mode='before')
+    @classmethod
+    def parse_datetime_strings(cls, v):
+        """Parse datetime strings from JSON"""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            # Handle ISO format with Z timezone
+            v = v.replace('Z', '+00:00')
+            try:
+                return datetime.fromisoformat(v)
+            except ValueError:
+                # Try parsing as ISO format without timezone
+                try:
+                    return datetime.fromisoformat(v.replace('+00:00', ''))
+                except ValueError:
+                    raise ValueError(f"Invalid date format: {v}")
+        return v
+    
+    class Config:
+        # Allow datetime strings to be parsed automatically
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
 
 class ExportResponse(BaseModel):
     """Response model for export data"""

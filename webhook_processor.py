@@ -447,11 +447,15 @@ class WebhookProcessor:
             if join_time < existing_session.join_time:
                 logger.warning(f"Out-of-order join event detected for user {uid}. Existing session starts at {existing_session.join_time}, new event at {join_time}")
                 existing_session.join_time = join_time
+                if webhook_data.payload.account:
+                    existing_session.account = webhook_data.payload.account
                 existing_session.updated_at = datetime.utcnow()
                 logger.info(f"Updated existing session with earlier join time for user {uid}, Product ID: {webhook_data.productId}, Platform: {webhook_data.payload.platform}, Reason: {webhook_data.payload.reason}")
             else:
                 # Update existing session join time (reconnection)
                 existing_session.join_time = join_time
+                if webhook_data.payload.account:
+                    existing_session.account = webhook_data.payload.account
                 existing_session.updated_at = datetime.utcnow()
                 logger.info(f"Updated existing session join time for user {uid}, Product ID: {webhook_data.productId}, Platform: {webhook_data.payload.platform}, Reason: {webhook_data.payload.reason}")
         else:
@@ -475,6 +479,7 @@ class WebhookProcessor:
                 platform=webhook_data.payload.platform,
                 reason=webhook_data.payload.reason,
                 client_type=webhook_data.payload.clientType,
+                account=webhook_data.payload.account,
                 is_host=is_host,
                 communication_mode=communication_mode,
                 role_switches=0
@@ -517,6 +522,9 @@ class WebhookProcessor:
             session.duration_seconds = int((leave_time - session.join_time).total_seconds())
             # Update reason from leave event
             session.reason = webhook_data.payload.reason
+            # Update account if provided
+            if webhook_data.payload.account:
+                session.account = webhook_data.payload.account
             session.updated_at = datetime.utcnow()
             logger.info(f"Closed session for user {uid} with duration {session.duration_seconds} seconds, reason: {session.reason}, Product ID: {webhook_data.productId}, Platform: {webhook_data.payload.platform}")
         else:
@@ -545,6 +553,7 @@ class WebhookProcessor:
                     platform=webhook_data.payload.platform,
                     reason=webhook_data.payload.reason,
                     client_type=webhook_data.payload.clientType,
+                    account=webhook_data.payload.account,
                     is_host=is_host,
                     communication_mode=communication_mode,
                     role_switches=0

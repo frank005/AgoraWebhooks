@@ -336,6 +336,7 @@ AgoraWebhooks/
 ├── models.py            # Pydantic models
 ├── webhook_processor.py # Webhook processing logic
 ├── mappings.py          # Platform and product mappings
+├── fix_emojis.py       # Utility script to fix broken emojis
 ├── templates/           # HTML templates
 │   └── index.html      # Web dashboard
 ├── old/                 # Archived files and tests
@@ -345,6 +346,18 @@ AgoraWebhooks/
 ├── start_dev.py        # Development startup script
 └── README.md           # This file
 ```
+
+### Utility Scripts
+
+**fix_emojis.py** - Fixes UTF-8 encoding issues that corrupt emojis to '??' or '?'
+- Run manually if needed: `python3 fix_emojis.py`
+- **Automatically runs before git commits** (via pre-commit hook)
+- **Automatically runs after git pull/merge** (via post-merge hook)
+- **Automatically runs during deployment** (via deploy.sh)
+- Automatically fixes all emojis in `main.py` and `templates/index.html`
+- Includes verification to ensure all emojis are properly restored
+
+**Note**: Emojis may get corrupted when files are edited through certain tools. The git hooks ensure they're automatically fixed before commits and after pulls, so you don't need to manually run the script.
 
 ### Adding New Features
 
@@ -398,6 +411,11 @@ For issues and questions:
 ## 🔄 Changelog
 
 ### Recent Updates
+- ✅ **Emoji Fixes**: Fixed all broken emojis across the application
+  - Fixed emojis in role quality view, multi-user view, and quality insights
+  - Fixed analytics buttons (Role Analytics, Quality Metrics, Multi-User View)
+  - Fixed user analytics button and Jump to Top button
+  - All emojis now display correctly throughout the dashboard
 - ✅ **Session ID (SID) Support**: Added Agora session ID tracking and display in user analytics
   - SID extracted from webhook payloads and stored in database
   - Displayed in User Analytics title with small grey text formatting (matching date display style)

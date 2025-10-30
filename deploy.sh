@@ -55,6 +55,12 @@ print_status "Copying application files..."
 cp -r . $APP_DIR/
 cd $APP_DIR
 
+# Fix emojis before deployment
+print_status "Fixing emojis..."
+if [ -f "fix_emojis.py" ]; then
+    python3 fix_emojis.py || print_warning "Some emojis may need manual fixing"
+fi
+
 # Create virtual environment
 print_status "Creating Python virtual environment..."
 python3.12 -m venv venv
