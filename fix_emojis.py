@@ -1,0 +1,194 @@
+#!/usr/bin/env python3
+"""
+Fix all broken emojis in the codebase.
+
+This script fixes UTF-8 encoding issues that corrupt emojis to '??' or '?'.
+Run this script whenever emojis get broken.
+
+Usage:
+    python3 fix_emojis.py
+"""
+
+import re
+import sys
+import os
+
+def fix_all_emojis():
+    """Fix all broken emojis in main.py and templates/index.html"""
+    
+    # Fix main.py
+    if not os.path.exists('main.py'):
+        print("Error: main.py not found")
+        return False
+    
+    with open('main.py', 'r', encoding='utf-8') as f:
+        py_content = f.read()
+    
+    py_fixes = [
+        # Quality insights
+        (r'quality_insights\.append\(f"(\?|\?\?) User {uid}', r'quality_insights.append(f"🔴 User {uid}'),
+        (r'quality_insights\.append\(f"(\?|\?\?) {other_issues}', r'quality_insights.append(f"🔴 {other_issues}'),
+        (r'quality_insights\.append\(f"(\?|\?\?) {network_timeouts}', r'quality_insights.append(f"🟡 {network_timeouts}'),
+        (r'quality_insights\.append\(f"(\?|\?\?) {network_issues}', r'quality_insights.append(f"🟡 {network_issues}'),
+        (r'quality_insights\.append\(f"(\?|\?\?) {ip_switching}', r'quality_insights.append(f"🟡 {ip_switching}'),
+        (r'quality_insights\.append\(f"(\?|\?\?) {server_issues}', r'quality_insights.append(f"🟡 {server_issues}'),
+        (r'quality_insights\.append\(f"(\?|\?\?) {permission_issues}', r'quality_insights.append(f"🟢 {permission_issues}'),
+        (r'quality_insights\.append\(f"(\?|\?\?) {device_switches}', r'quality_insights.append(f"🟢 {device_switches}'),
+        (r'quality_insights\.append\(f"\? {good_exits}', r'quality_insights.append(f"✅ {good_exits}'),
+        (r'quality_insights\.append\(f"(\?|\?\?) {failed_calls}', r'quality_insights.append(f"📞 {failed_calls}'),
+        (r'quality_insights\.append\(f"(\?|\?\?) High role switching', r'quality_insights.append(f"🔄 High role switching'),
+        (r'quality_insights\.append\(f"(\?|\?\?) Short average session length', r'quality_insights.append(f"⏱️ Short average session length'),
+        # Insights
+        (r'insights\.append\(f"(\?|\?\?) {churn_events}', r'insights.append(f"🔴 {churn_events}'),
+        (r'insights\.append\(f"(\?|\?\?) {other_issues}', r'insights.append(f"🔴 {other_issues}'),
+        (r'insights\.append\(f"(\?|\?\?) {network_timeouts}', r'insights.append(f"🟡 {network_timeouts}'),
+        (r'insights\.append\(f"(\?|\?\?) {network_issues}', r'insights.append(f"🟡 {network_issues}'),
+        (r'insights\.append\(f"(\?|\?\?) {ip_switching}', r'insights.append(f"🟡 {ip_switching}'),
+        (r'insights\.append\(f"(\?|\?\?) {server_issues}', r'insights.append(f"🟡 {server_issues}'),
+        (r'insights\.append\(f"(\?|\?\?) {permission_issues}', r'insights.append(f"🟢 {permission_issues}'),
+        (r'insights\.append\(f"(\?|\?\?) {device_switches}', r'insights.append(f"🟢 {device_switches}'),
+        (r'insights\.append\(f"\? {good_exits}', r'insights.append(f"✅ {good_exits}'),
+        (r'insights\.append\(f"(\?|\?\?) {failed_calls}', r'insights.append(f"📞 {failed_calls}'),
+        (r'insights\.append\("(\?|\?\?) Test channel', r'insights.append("🧪 Test channel'),
+        (r'insights\.append\(f"(\?|\?\?) Short average session length', r'insights.append(f"⏱️ Short average session length'),
+        (r'insights\.append\("(\?|\?\?) Poor quality', r'insights.append("🔴 Poor quality'),
+        (r'insights\.append\("(\?|\?\?) Moderate quality', r'insights.append("🟡 Moderate quality'),
+        (r'insights\.append\("(\?|\?\?) Good quality', r'insights.append("🟢 Good quality'),
+    ]
+    
+    py_fixed_count = 0
+    for pattern, replacement in py_fixes:
+        matches = len(re.findall(pattern, py_content))
+        py_content = re.sub(pattern, replacement, py_content)
+        if matches > 0:
+            py_fixed_count += matches
+    
+    with open('main.py', 'w', encoding='utf-8') as f:
+        f.write(py_content)
+    
+    print(f"Fixed {py_fixed_count} emojis in main.py")
+    
+    # Fix templates/index.html
+    html_path = 'templates/index.html'
+    if not os.path.exists(html_path):
+        print(f"Warning: {html_path} not found")
+        return py_fixed_count > 0
+    
+    with open(html_path, 'r', encoding='utf-8') as f:
+        html_content = f.read()
+    
+    html_fixes = [
+        # Flag mappings - handle whitespace variations
+        (r"text:\s*'(\?|\?\?) Local Recording'", "text: '📹 Local Recording'"),
+        (r"text:\s*'(\?|\?\?) Applets'", "text: '📱 Applets'"),
+        (r"text:\s*'(\?|\?\?) Cloud Recording'", "text: '☁️ Cloud Recording'"),
+        (r"text:\s*'(\?|\?\?) Media Pull'", "text: '⬇️ Media Pull'"),
+        (r"text:\s*'(\?|\?\?) Media Push'", "text: '⬆️ Media Push'"),
+        (r"text:\s*'(\?|\?\?) Media Relay'", "text: '🔄 Media Relay'"),
+        (r"text:\s*'(\?|\?\?) STT PubBot'", "text: '🎤 STT PubBot'"),
+        (r"text:\s*'(\?|\?\?) STT SubBot'", "text: '🎧 STT SubBot'"),
+        (r"text:\s*'(\?|\?\?) Media Gateway'", "text: '🌐 Media Gateway'"),
+        (r"text:\s*'(\?|\?\?) Conversational AI'", "text: '🤖 Conversational AI'"),
+        (r"text:\s*'(\?|\?\?\?) Real-Time STT'", "text: '🎙️ Real-Time STT'"),
+        # Buttons and labels - handle whitespace
+        (r"textContent\s*=\s*'(\?|\?\?) Share Link'", "textContent = '📋 Share Link'"),
+        (r'">\s*(\?|\?\?)\s*Role Analytics<', '">👥 Role Analytics<'),
+        (r'">\s*(\?|\?\?)\s*Quality Metrics<', '">📊 Quality Metrics<'),
+        (r'">\s*(\?|\?\?\?\?)\s*Multi-User View<', '">👥👥 Multi-User View<'),
+        # Icons in comments
+        (r"//\s*Mic icon\s*\((\?|\?\?)\)", "// Mic icon (🎤)"),
+        (r"//\s*Ear icon\s*\((\?|\?\?)\)", "// Ear icon (👂)"),
+        # Icon variables - handle all variations
+        (r"const\s+finalIcon\s*=\s*isHost\s*\?\s*'🎤'\s*:\s*'(\?|\?\?)'", "const finalIcon = isHost ? '🎤' : '👂'"),
+        (r"const\s+finalIcon\s*=\s*isHost\s*\?\s*'(\?|\?\?)'\s*:\s*'(\?|\?\?)'", "const finalIcon = isHost ? '🎤' : '👂'"),
+        (r"const\s+initialIcon\s*=\s*isHost\s*\?\s*'👂'\s*:\s*'(\?|\?\?)'", "const initialIcon = isHost ? '👂' : '🎤'"),
+        (r"const\s+initialIcon\s*=\s*isHost\s*\?\s*'(\?|\?\?)'\s*:\s*'(\?|\?\?)'", "const initialIcon = isHost ? '👂' : '🎤'"),
+        (r"const\s+icon\s*=\s*isHost\s*\?\s*'(\?|\?\?)'\s*:\s*'(\?|\?\?)'", "const icon = isHost ? '🎤' : '👂'"),
+        # Headers
+        (r"<h4>(\?|\?\?)\s*Panel", "<h4>👤 Panel"),
+        (r"<h3>(\?|\?\?)\s*Overview</h3>", "<h3>📊 Overview</h3>"),
+        (r"<h3>(\?|\?\?)\s*Platform Distribution</h3>", "<h3>📱 Platform Distribution</h3>"),
+        (r"<h3>(\?|\?\?)\s*Product Usage</h3>", "<h3>🔧 Product Usage</h3>"),
+        (r"<h3>(\?|\?\?)\s*Quality Metrics</h3>", "<h3>📊 Quality Metrics</h3>"),
+        (r"<h3>(\?|\?\?)\s*Channels List</h3>", "<h3>📋 Channels List</h3>"),
+        (r"<h3>(\?|\?\?)\s*Quality Insights</h3>", "<h3>⚠️ Quality Insights</h3>"),
+        (r"<h3>(\?|\?\?)\s*Role Breakdown</h3>", "<h3>👥 Role Breakdown</h3>"),
+        (r"<h3>(\?|\?\?)\s*Platform Usage</h3>", "<h3>📱 Platform Usage</h3>"),
+        (r"<h3>(\?|\?\?)\s*Quality Overview</h3>", "<h3>📊 Quality Overview</h3>"),
+        (r"<h3>(\?|\?\?)\s*Concurrent Users Over Time</h3>", "<h3>📈 Concurrent Users Over Time</h3>"),
+        (r"<h3>(\?|\?\?)\s*Session Length Distribution</h3>", "<h3>📈 Session Length Distribution</h3>"),
+        # Buttons - fix arrows
+        (r">(\?|\?\?)\s*Previous</button>", ">← Previous</button>"),
+        (r"Next\s*(\?|\?\?)</button>", "Next →</button>"),
+        (r">(\?|\?\?)\s*Back to Channels</button>", ">← Back to Channels</button>"),
+        (r"Jump to Top\">(\?|\?\?)", "Jump to Top\">↑"),
+        # Analytics button
+        (r'onclick="showUserAnalytics\(\$\{session\.uid\}\)"[^>]*>\s*(\?|\?\?)', r'onclick="showUserAnalytics(${session.uid})" style="padding: 2px 6px; font-size: 0.7rem; background: linear-gradient(135deg, #6f42c1, #e83e8c);" title="View Analytics">\n                                            📊'),
+        # Date formatting bullet
+        (r"peakTimeDisplay\s*=\s*'<span[^>]*>(\?|\?\?)\s*'", r"peakTimeDisplay = '<span style=\"font-size: 0.75em; color: #999; margin-left: 8px; font-weight: normal;\">• "),
+    ]
+    
+    html_fixed_count = 0
+    for pattern, replacement in html_fixes:
+        matches = len(re.findall(pattern, html_content))
+        html_content = re.sub(pattern, replacement, html_content)
+        if matches > 0:
+            html_fixed_count += matches
+    
+    with open(html_path, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+    
+    print(f"Fixed {html_fixed_count} emojis in {html_path}")
+    
+    return True
+
+
+def verify_emojis():
+    """Verify that emojis are fixed correctly"""
+    files = {
+        'main.py': ['🔴', '🟡', '🟢', '✅', '📞', '🔄', '⏱️'],
+        'templates/index.html': ['📊', '👥', '📱', '🔧', '📋', '⚠️', '📈', '👤', '📹', '☁️', '⬇️', '⬆️', '🎤', '🎧', '🌐', '🤖', '🎙️', '🧪', '←', '→', '↑']
+    }
+    
+    all_good = True
+    for filepath, expected_emojis in files.items():
+        if not os.path.exists(filepath):
+            continue
+        
+        with open(filepath, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        broken = content.count('??') + content.count('? ')
+        working = sum(1 for emoji in expected_emojis if emoji in content)
+        
+        if broken > 0:
+            print(f"⚠️  {filepath}: {broken} broken emoji(s) remaining")
+            all_good = False
+        else:
+            print(f"✅ {filepath}: {working} working emojis, 0 broken")
+    
+    return all_good
+
+
+if __name__ == '__main__':
+    print("🔧 Fixing all broken emojis...")
+    print("-" * 50)
+    
+    if fix_all_emojis():
+        print("-" * 50)
+        print("✅ Emoji fix complete!")
+        print("\nVerifying fixes...")
+        print("-" * 50)
+        
+        if verify_emojis():
+            print("-" * 50)
+            print("✅ All emojis are fixed!")
+            sys.exit(0)
+        else:
+            print("-" * 50)
+            print("⚠️  Some emojis may still be broken. Please check manually.")
+            sys.exit(1)
+    else:
+        print("-" * 50)
+        print("❌ Failed to fix emojis")
+        sys.exit(1)

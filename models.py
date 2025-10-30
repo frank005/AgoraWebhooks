@@ -125,6 +125,7 @@ class UserDetailResponse(BaseModel):
     product_breakdown: Dict[str, float]
     channels_list: List[Dict[str, Any]]
     quality_insights: List[str]
+    sid: Optional[str] = None
 
 class RoleAnalyticsResponse(BaseModel):
     """Response model for role and product analytics"""

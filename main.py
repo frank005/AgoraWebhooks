@@ -756,6 +756,13 @@ async def get_user_detailed_analytics(app_id: str, uid: int, db: Session = Depen
         if avg_session_length < 1:
             quality_insights.append(f"⏱️ Short average session length: {avg_session_length:.1f} minutes")
         
+        # Collect SID from sessions - get the most recent non-null SID
+        sid = None
+        for session in sorted(sessions, key=lambda s: s.join_time, reverse=True):
+            if session.sid:
+                sid = session.sid
+                break
+        
         return UserDetailResponse(
             uid=uid,
             app_id=app_id,
@@ -769,7 +776,8 @@ async def get_user_detailed_analytics(app_id: str, uid: int, db: Session = Depen
             failed_calls=failed_calls,
             product_breakdown={k: round(v, 2) for k, v in product_breakdown.items()},
             channels_list=channels_list,
-            quality_insights=quality_insights
+            quality_insights=quality_insights,
+            sid=sid
         )
         
     except HTTPException:

@@ -640,7 +640,7 @@
                 <h2>Channels</h2>
                 <div class="channels-grid" id="channels-grid"></div>
                 <div class="pagination" id="pagination" style="display: none;">
-                    <button id="prev-page" onclick="changePage(-1)">← Previous</button>
+                    <button id="prev-page" onclick="changePage(-1)">? ? Previous</button>
                     <div class="pagination-info" id="pagination-info"></div>
                     <button id="next-page" onclick="changePage(1)">Next →</button>
                 </div>
@@ -1013,14 +1013,11 @@
             // Add analytics buttons
             const analyticsButtons = `
                 <div style="margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
-                    <button class="btn analytics-btn" data-action="role" data-channel="${data.channel_name}" style="background: linear-gradient(135deg, #28a745, #20c997);">
-                        👥 Role Analytics
+                    <button class="btn analytics-btn" data-action="role" data-channel="${data.channel_name}" style="background: linear-gradient(135deg, #28a745, #20c997);">👥 Role Analytics
                     </button>
-                    <button class="btn analytics-btn" data-action="quality" data-channel="${data.channel_name}" style="background: linear-gradient(135deg, #fd7e14, #e83e8c);">
-                        📊 Quality Metrics
+                    <button class="btn analytics-btn" data-action="quality" data-channel="${data.channel_name}" style="background: linear-gradient(135deg, #fd7e14, #e83e8c);">📊 Quality Metrics
                     </button>
-                    <button class="btn analytics-btn" data-action="multi-user" data-channel="${data.channel_name}" style="background: linear-gradient(135deg, #6f42c1, #20c997);">
-                        👥👥 Multi-User View
+                    <button class="btn analytics-btn" data-action="multi-user" data-channel="${data.channel_name}" style="background: linear-gradient(135deg, #6f42c1, #20c997);">👥👥 Multi-User View
                     </button>
                 </div>
             `;
@@ -1633,7 +1630,12 @@
         }
 
         function displayUserAnalytics(data, uid) {
-            document.getElementById('user-analytics-title').textContent = `User Analytics: ${data.uid}`;
+            // Format title with SID like the date formatting
+            let titleText = `User Analytics: ${data.uid}`;
+            if (data.sid) {
+                titleText += `<span style="font-size: 0.75em; color: #999; margin-left: 8px; font-weight: normal;">${data.sid}</span>`;
+            }
+            document.getElementById('user-analytics-title').innerHTML = titleText;
             
             const content = document.getElementById('user-analytics-content');
             content.innerHTML = `
@@ -1679,7 +1681,7 @@
                     </div>
 
                     <div class="analytics-card">
-                        <h3>📈 Quality Metrics</h3>
+                        <h3>📊 Quality Metrics</h3>
                         <div class="metric-item">
                             <span class="metric-label metric-tooltip" data-tooltip="Users frequently joining/leaving (reason=999) - indicates abnormal user behavior, network issues, or connection problems">Churn Events</span>
                             <span class="metric-value">${data.churn_events}</span>
@@ -2013,7 +2015,7 @@
                 const d = new Date(data.peak_concurrent_time);
                 const dateStr = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}/${String(d.getFullYear()).slice(-2)}`;
                 const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }).replace(/\s/g, '');
-                peakTimeDisplay = '<span style="font-size: 0.75em; color: #999; margin-left: 8px; font-weight: normal;">• ' + dateStr + ', ' + timeStr + '</span>';
+                peakTimeDisplay = '<span style=\"font-size: 0.75em; color: #999; margin-left: 8px; font-weight: normal;\">• ' + dateStr + ', ' + timeStr + '</span>';
             }
             
             content.innerHTML = `
@@ -2393,7 +2395,7 @@
     
     <!-- Jump to Top Button -->
     <button class="jump-to-top" id="jumpToTop" onclick="scrollToTop()" title="Jump to Top">
-        ↑
+        ?
     </button>
 </body>
 </html>

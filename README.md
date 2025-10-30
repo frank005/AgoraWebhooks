@@ -157,6 +157,7 @@ curl -X POST https://your-domain.com/your-app-id/webhooks \
 - `GET /api/channel/{app_id}/{channel_name}/role-analytics` - Get role and product analytics with wall clock time
 - `GET /api/channel/{app_id}/{channel_name}/quality-metrics` - Get quality metrics with concurrent users graph data
 - `GET /api/user/{app_id}/{uid}` - Get user metrics and session history
+- `GET /api/user/{app_id}/{uid}/detailed` - Get detailed user analytics including SID, quality insights, and platform distribution
 - `GET /health` - Health check endpoint
 - `GET /debug/cache` - Debug cache status
 
@@ -397,6 +398,14 @@ For issues and questions:
 ## 🔄 Changelog
 
 ### Recent Updates
+- ✅ **Session ID (SID) Support**: Added Agora session ID tracking and display in user analytics
+  - SID extracted from webhook payloads and stored in database
+  - Displayed in User Analytics title with small grey text formatting (matching date display style)
+  - Populated from historical webhook logs for existing sessions
+- ✅ **Emoji Fix Script**: Created `fix_emojis.py` utility script to fix UTF-8 encoding issues that corrupt emojis
+  - Run `python3 fix_emojis.py` whenever emojis get broken
+  - Automatically fixes all emojis in `main.py` and `templates/index.html`
+  - Includes verification to ensure all emojis are properly restored
 - ✅ **Role and Communication Mode Indicators**: Added visual indicators to distinguish between different communication modes and roles (RTC/Host, ILS/Host, ILS/Audience)
 - ✅ **Fixed Channel Session Assignment**: Resolved issue where users were incorrectly assigned to different channel sessions when leave events came after channel destroy events
 - ✅ **Enhanced Session Tracking**: Improved logic to correctly match leave events to their corresponding channel sessions using timestamp-based correlation

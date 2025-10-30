@@ -55,6 +55,9 @@ class ChannelSession(Base):
     # Channel session tracking
     channel_session_id = Column(String(100), nullable=True, index=True)
     
+    # Session ID from Agora
+    sid = Column(String(100), nullable=True, index=True)
+    
     # Session timing
     join_time = Column(DateTime, nullable=False, index=True)
     leave_time = Column(DateTime, nullable=True, index=True)

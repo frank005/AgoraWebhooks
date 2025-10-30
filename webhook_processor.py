@@ -468,6 +468,7 @@ class WebhookProcessor:
                 app_id=app_id,
                 channel_name=channel_name,
                 channel_session_id=channel_session_id,
+                sid=webhook_data.sid,
                 uid=uid,
                 join_time=join_time,
                 product_id=webhook_data.productId,
@@ -501,6 +502,10 @@ class WebhookProcessor:
         ).order_by(ChannelSession.join_time.desc()).first()
         
         if session:
+            # Update sid if provided and not already set
+            if webhook_data.sid and not session.sid:
+                session.sid = webhook_data.sid
+            
             # Check if this is an out-of-order event (leave time is before join time)
             if leave_time < session.join_time:
                 logger.warning(f"Out-of-order leave event detected for user {uid}. Session starts at {session.join_time}, leave event at {leave_time}")
@@ -531,6 +536,7 @@ class WebhookProcessor:
                     app_id=app_id,
                     channel_name=channel_name,
                     channel_session_id=channel_session_id,
+                    sid=webhook_data.sid,
                     uid=uid,
                     join_time=join_time,
                     leave_time=leave_time,
