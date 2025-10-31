@@ -37,7 +37,7 @@ rollback() {
         
         if [ "$CRON_ADDED" = true ]; then
             print_status "Removing cron job..."
-            crontab -l 2>/dev/null | grep -v "/opt/agora-webhooks/monitor.sh" | crontab - 2>/dev/null || true
+            crontab -l 2>/dev/null | grep -v "$APP_DIR/monitor.sh" | crontab - 2>/dev/null || true
         fi
         
         if [ "$APP_DIR_CREATED" = true ]; then
@@ -385,7 +385,7 @@ else
 fi
 EOF
 
-sudo chmod +x /opt/agora-webhooks/monitor.sh
+sudo chmod +x $APP_DIR/monitor.sh
 
 # Add cron job for monitoring
 print_status "Setting up monitoring cron job..."
