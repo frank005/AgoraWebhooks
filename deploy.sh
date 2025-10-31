@@ -402,12 +402,27 @@ fi
 # Ensure log file exists and has correct permissions
 touch $APP_DIR/agora-webhooks.log 2>/dev/null || true
 
+# Check if database already exists and prompt user
+DB_FILE="$APP_DIR/agora_webhooks.db"
+if [ -f "$DB_FILE" ]; then
+    print_warning "⚠️  Database file already exists: $DB_FILE"
+    print_warning "If you keep it, the deployment will use the existing database."
+    print_warning "If you clear it, all existing data will be lost."
+    read -p "Keep existing database? (Y/n): " KEEP_DB
+    if [ "$KEEP_DB" = "n" ] || [ "$KEEP_DB" = "N" ]; then
+        print_status "Clearing existing database..."
+        rm -f "$DB_FILE"
+        print_status "✅ Database cleared"
+    else
+        print_status "Keeping existing database"
+    fi
+fi
+
 # Ensure database directory is writable
 print_status "Ensuring database directory is writable..."
-sudo -u $USER touch $APP_DIR/agora_webhooks.db.test 2>/dev/null && rm -f $APP_DIR/agora_webhooks.db.test || {
-    print_error "❌ Cannot write to $APP_DIR - fixing permissions..."
-    sudo chown -R $USER:$USER $APP_DIR
-    sudo chmod -R u+w $APP_DIR
+touch $APP_DIR/agora_webhooks.db.test 2>/dev/null && rm -f $APP_DIR/agora_webhooks.db.test || {
+    print_error "❌ Cannot write to $APP_DIR - check permissions"
+    exit 1
 }
 
 # Ensure .env file permissions
