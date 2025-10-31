@@ -40,9 +40,8 @@ rollback() {
             crontab -l 2>/dev/null | grep -v "$APP_DIR/monitor.sh" | crontab - 2>/dev/null || true
         fi
         
-        if [ "$APP_DIR_CREATED" = true ]; then
-            print_warning "Application directory $APP_DIR was created but not removed (may contain data)"
-        fi
+        # Don't remove the directory since it's the git repo
+        print_warning "Application directory $APP_DIR (git repository) was not removed"
         
         print_error "Rollback complete. Please fix the errors and try again."
     fi
@@ -89,16 +88,18 @@ sudo apt install -y python3.12 python3.12-venv python3.12-dev python3-pip
 print_status "Installing additional packages..."
 sudo apt install -y nginx certbot python3-certbot-nginx ufw
 
-# Create application directory
-APP_DIR="$HOME/agora-webhooks"
-print_status "Creating application directory at $APP_DIR..."
-if [ -d "$APP_DIR" ]; then
-    print_warning "Application directory already exists. Cleaning it up..."
-    rm -rf $APP_DIR/*
-    rm -rf $APP_DIR/.* 2>/dev/null || true
+# Determine application directory (current directory where git repo is)
+APP_DIR="$(pwd)"
+print_status "Using application directory: $APP_DIR"
+print_status "Make sure you're running this script from your git repository directory"
+
+# Check if this looks like a git repository
+if [ ! -d ".git" ]; then
+    print_warning "Warning: .git directory not found. This might not be a git repository."
+    print_warning "You won't be able to update with 'git pull' later."
 fi
-mkdir -p $APP_DIR
-APP_DIR_CREATED=true
+
+APP_DIR_CREATED=false  # We're not creating it, we're using existing
 
 # Copy application files (exclude .git, venv, and other unnecessary files)
 print_status "Copying application files..."
