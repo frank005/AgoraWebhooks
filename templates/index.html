@@ -8,6 +8,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <meta name="version" content="2025-01-28-v5">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -569,6 +570,7 @@
             <div style="display: flex; gap: 10px; margin-top: 20px;">
                 <button class="btn" onclick="loadChannels()">Load Channels</button>
                 <button class="btn" onclick="showExportSection()" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%);">Export Data</button>
+                <button class="btn" onclick="showMinutesViewer()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">Minutes Analytics</button>
             </div>
         </div>
         
@@ -625,6 +627,88 @@
             <div style="display: flex; gap: 10px; margin-top: 10px;">
                 <button class="btn" onclick="loadExportData()" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); padding: 6px 12px; font-size: 0.9rem;">Export Data</button>
                 <button class="btn" onclick="hideExportSection()" style="background: #6c757d; padding: 6px 12px; font-size: 0.9rem;">Cancel</button>
+            </div>
+        </div>
+        
+        <div class="search-section" id="minutes-viewer-section" style="display: none;">
+            <h3 style="margin-bottom: 10px; color: #333;">Minutes Analytics Viewer</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 10px;">
+                <div class="form-group" style="margin-bottom: 5px;">
+                    <label for="minutesAppId" style="font-size: 0.9rem; margin-bottom: 2px;">App ID</label>
+                    <input type="text" id="minutesAppId" placeholder="Enter your Agora App ID" style="padding: 5px 8px; font-size: 0.9rem;" />
+                </div>
+                <div class="form-group" style="margin-bottom: 5px;">
+                    <label for="minutesPeriod" style="font-size: 0.9rem; margin-bottom: 2px;">Period</label>
+                    <select id="minutesPeriod" style="padding: 5px 8px; font-size: 0.9rem;">
+                        <option value="day">Daily</option>
+                        <option value="month">Monthly</option>
+                    </select>
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 10px;">
+                <div class="form-group" style="margin-bottom: 5px;">
+                    <label for="minutesStartDate" style="font-size: 0.9rem; margin-bottom: 2px;">Start Date</label>
+                    <input type="date" id="minutesStartDate" style="padding: 5px 8px; font-size: 0.9rem;" />
+                    <small style="color: #666; font-size: 0.75rem;">For monthly: selects first day of month</small>
+                </div>
+                <div class="form-group" style="margin-bottom: 5px;">
+                    <label for="minutesEndDate" style="font-size: 0.9rem; margin-bottom: 2px;">End Date</label>
+                    <input type="date" id="minutesEndDate" style="padding: 5px 8px; font-size: 0.9rem;" />
+                    <small style="color: #666; font-size: 0.75rem;">For monthly: selects last day of month</small>
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-bottom: 10px;">
+                <div class="form-group" style="margin-bottom: 5px;">
+                    <label style="font-size: 0.9rem; margin-bottom: 2px;">Role (select multiple)</label>
+                    <div id="minutesRolesContainer" style="border: 1px solid #ddd; border-radius: 4px; padding: 8px; max-height: 120px; overflow-y: auto; background: white;">
+                        <label style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 0.85rem;">
+                            <input type="checkbox" class="role-checkbox" value="host" checked />
+                            Host
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 0.85rem;">
+                            <input type="checkbox" class="role-checkbox" value="audience" checked />
+                            Audience
+                        </label>
+                    </div>
+                </div>
+                <div class="form-group" style="margin-bottom: 5px;">
+                    <label style="font-size: 0.9rem; margin-bottom: 2px;">Platforms (optional filter, select multiple)</label>
+                    <div id="minutesPlatformsContainer" style="border: 1px solid #ddd; border-radius: 4px; padding: 8px; max-height: 120px; overflow-y: auto; background: white;">
+                        <small style="color: #666; font-size: 0.75rem;">Enter App ID to load available platforms</small>
+                    </div>
+                </div>
+                <div class="form-group" style="margin-bottom: 5px;">
+                    <label style="font-size: 0.9rem; margin-bottom: 2px;">Client Types (select multiple)</label>
+                    <div id="minutesClientTypesContainer" style="border: 1px solid #ddd; border-radius: 4px; padding: 8px; max-height: 120px; overflow-y: auto; background: white;">
+                        <small style="color: #666; font-size: 0.75rem;">Select platforms first to see available client types</small>
+                    </div>
+                </div>
+            </div>
+            <div style="margin-bottom: 10px;">
+                <div class="form-group" style="margin-bottom: 5px;">
+                    <label for="minutesBreakdownBy" style="font-size: 0.9rem; margin-bottom: 2px;">Breakdown By</label>
+                    <select id="minutesBreakdownBy" style="padding: 5px 8px; font-size: 0.9rem; width: 100%;">
+                        <option value="role">Role (Host/Audience)</option>
+                        <option value="platform">Platform</option>
+                    </select>
+                    <small style="color: #666; font-size: 0.75rem;">Choose how to group the data in the chart</small>
+                </div>
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button class="btn" onclick="loadMinutesAnalytics()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 6px 12px; font-size: 0.9rem;">Load Analytics</button>
+                <button class="btn" onclick="hideMinutesViewer()" style="background: #6c757d; padding: 6px 12px; font-size: 0.9rem;">Cancel</button>
+            </div>
+            <div id="minutes-chart-container" style="margin-top: 20px; display: none;">
+                <div id="chart-warning" style="display: none; padding: 10px; margin-bottom: 10px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; color: #856404;">
+                    <strong>⚠️ Many Series Detected:</strong> Showing all <span id="series-count"></span> series. Consider filtering by specific platforms or client types for better readability.
+                </div>
+                <div id="chart-wrapper" style="position: relative; height: 400px;">
+                    <canvas id="minutesChart"></canvas>
+                </div>
+                <div id="minutes-summary" style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                    <h4 style="margin-bottom: 10px;">Summary</h4>
+                    <div id="minutes-summary-content"></div>
+                </div>
             </div>
         </div>
         
@@ -736,6 +820,10 @@
         }
         
         async function loadChannels(page = 1) {
+            // Hide minutes viewer if shown
+            document.getElementById('minutes-viewer-section').style.display = 'none';
+            document.getElementById('minutes-chart-container').style.display = 'none';
+            
             const appId = document.getElementById('appId').value.trim();
             if (!appId) {
                 showError('Please enter an App ID');
@@ -762,6 +850,9 @@
                 paginationData = data.pagination;
                 displayChannels(data.channels);
                 updatePagination();
+                
+                // Show channels view
+                showChannelsView();
                 
             } catch (error) {
                 showError(`Failed to load channels: ${error.message}`);
@@ -950,8 +1041,14 @@
         }
         
         async function loadChannelDetails(channelName, sessionId = null) {
+            // Hide minutes viewer and export section if shown
+            document.getElementById('minutes-viewer-section').style.display = 'none';
+            document.getElementById('minutes-chart-container').style.display = 'none';
+            document.getElementById('export-section').style.display = 'none';
+            
             currentChannel = channelName;
             currentSessionId = sessionId;
+            
             showLoading();
             
             // Update URL
@@ -1307,6 +1404,11 @@
         }
         
         function showChannelsView() {
+            // Hide minutes viewer and export section if they're shown
+            document.getElementById('minutes-viewer-section').style.display = 'none';
+            document.getElementById('minutes-chart-container').style.display = 'none';
+            document.getElementById('export-section').style.display = 'none';
+            
             currentChannel = null;
             currentSessionId = null;
             
@@ -2117,6 +2219,10 @@
         }
         
         function showChannelDetails() {
+            // Hide minutes viewer and export section if shown
+            document.getElementById('minutes-viewer-section').style.display = 'none';
+            document.getElementById('minutes-chart-container').style.display = 'none';
+            document.getElementById('export-section').style.display = 'none';
 
             
             // First, ensure the results container is visible
@@ -2191,7 +2297,22 @@
         
         // Export functionality
         function showExportSection() {
+            // Hide all other sections
+            document.getElementById('results').style.display = 'none';
+            document.getElementById('channels-view').style.display = 'none';
+            document.getElementById('channel-details').style.display = 'none';
+            document.getElementById('minutes-viewer-section').style.display = 'none';
+            document.getElementById('minutes-chart-container').style.display = 'none';
+            
+            // Hide all analytics sections
+            document.getElementById('user-analytics').style.display = 'none';
+            document.getElementById('role-analytics').style.display = 'none';
+            document.getElementById('quality-metrics').style.display = 'none';
+            document.getElementById('multi-user-analytics').style.display = 'none';
+            
+            // Show export section
             document.getElementById('export-section').style.display = 'block';
+            
             // Copy current app ID to export form if available
             const currentAppId = document.getElementById('appId').value;
             if (currentAppId) {
@@ -2206,6 +2327,12 @@
         
         function hideExportSection() {
             document.getElementById('export-section').style.display = 'none';
+            
+            // Show results section again if there's an app ID
+            if (currentAppId) {
+                document.getElementById('results').style.display = 'block';
+                showChannelsView();
+            }
         }
         
         async function loadExportChannels(appId) {
@@ -2382,6 +2509,464 @@
             }
         });
         
+        // Minutes Analytics Viewer functions
+        let minutesChart = null;
+        
+        function showMinutesViewer() {
+            // Hide all channels and analytics sections
+            document.getElementById('results').style.display = 'none';
+            document.getElementById('channels-view').style.display = 'none';
+            document.getElementById('channel-details').style.display = 'none';
+            document.getElementById('export-section').style.display = 'none';
+            
+            // Hide all analytics sections
+            document.getElementById('user-analytics').style.display = 'none';
+            document.getElementById('role-analytics').style.display = 'none';
+            document.getElementById('quality-metrics').style.display = 'none';
+            document.getElementById('multi-user-analytics').style.display = 'none';
+            
+            // Show minutes viewer section
+            document.getElementById('minutes-viewer-section').style.display = 'block';
+            
+            // Copy current app ID to minutes form if available
+            if (currentAppId) {
+                document.getElementById('minutesAppId').value = currentAppId;
+                // Load platforms and client types when app ID is available
+                loadPlatformsForMinutes(currentAppId);
+                loadClientTypesForMinutes(currentAppId);
+            }
+            
+            // Set default dates (last 30 days)
+            const today = new Date();
+            const thirtyDaysAgo = new Date(today);
+            thirtyDaysAgo.setDate(today.getDate() - 30);
+            
+            document.getElementById('minutesEndDate').value = today.toISOString().split('T')[0];
+            document.getElementById('minutesStartDate').value = thirtyDaysAgo.toISOString().split('T')[0];
+            
+            // Add event listener for platform change
+            document.addEventListener('change', function(e) {
+                if (e.target.classList.contains('platform-checkbox')) {
+                    const appId = document.getElementById('minutesAppId').value.trim();
+                    const selectedPlatforms = Array.from(document.querySelectorAll('.platform-checkbox:checked')).map(cb => parseInt(cb.value));
+                    if (appId) {
+                        loadClientTypesForMinutes(appId, selectedPlatforms);
+                    } else {
+                        // Clear client types if no platforms selected
+                        const container = document.getElementById('minutesClientTypesContainer');
+                        container.innerHTML = '<small style="color: #666; font-size: 0.75rem;">Select platforms first to see available client types</small>';
+                    }
+                }
+            });
+        }
+        
+        // Cache for platform mapping
+        let platformMappingCache = null;
+        
+        async function getPlatformMapping() {
+            if (platformMappingCache) {
+                return platformMappingCache;
+            }
+            
+            try {
+                const response = await fetch('/api/mappings/platforms');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const data = await response.json();
+                platformMappingCache = data.platform_mapping;
+                return platformMappingCache;
+            } catch (error) {
+                console.error('Error loading platform mapping:', error);
+                // Fallback to default mapping
+                return {0: 'Other', 1: 'Android', 2: 'iOS', 5: 'Windows', 6: 'Linux', 7: 'Web', 8: 'macOS'};
+            }
+        }
+        
+        async function loadPlatformsForMinutes(appId) {
+            if (!appId) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/analytics/platforms/${appId}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const data = await response.json();
+                const container = document.getElementById('minutesPlatformsContainer');
+                
+                // Clear existing checkboxes
+                container.innerHTML = '';
+                
+                // Add checkboxes for each platform
+                if (data.platforms.length === 0) {
+                    container.innerHTML = '<small style="color: #666; font-size: 0.75rem;">No platforms available</small>';
+                } else {
+                    data.platforms.forEach(platform => {
+                        const label = document.createElement('label');
+                        label.style.cssText = 'display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 0.85rem;';
+                        
+                        const checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.className = 'platform-checkbox';
+                        checkbox.value = platform.id;
+                        
+                        label.appendChild(checkbox);
+                        label.appendChild(document.createTextNode(platform.name));
+                        container.appendChild(label);
+                    });
+                }
+                
+            } catch (error) {
+                console.error('Error loading platforms:', error);
+                const container = document.getElementById('minutesPlatformsContainer');
+                container.innerHTML = '<small style="color: #d32f2f; font-size: 0.75rem;">Error loading platforms</small>';
+            }
+        }
+        
+        async function loadClientTypesForMinutes(appId, platformIds = null) {
+            if (!appId) {
+                return;
+            }
+            
+            try {
+                let url = `/api/analytics/client-types/${appId}`;
+                let clientTypesToShow = [];
+                
+                // Filter client types by selected platforms if applicable
+                if (platformIds && platformIds.length > 0) {
+                    // Get client types for each selected platform
+                    const clientTypePromises = platformIds.map(platformId => 
+                        fetch(`${url}?platform_id=${platformId}`).then(r => r.json())
+                    );
+                    const results = await Promise.all(clientTypePromises);
+                    
+                    // Combine and deduplicate client types
+                    const allClientTypes = new Map();
+                    results.forEach(result => {
+                        result.client_types.forEach(ct => {
+                            if (!allClientTypes.has(ct.id)) {
+                                allClientTypes.set(ct.id, ct);
+                            }
+                        });
+                    });
+                    clientTypesToShow = Array.from(allClientTypes.values());
+                } else {
+                    // Get all client types
+                    const response = await fetch(url);
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                    const data = await response.json();
+                    clientTypesToShow = data.client_types;
+                }
+                
+                const container = document.getElementById('minutesClientTypesContainer');
+                
+                // Clear existing checkboxes
+                container.innerHTML = '';
+                
+                // Sort by ID
+                clientTypesToShow.sort((a, b) => a.id - b.id);
+                
+                // Add checkboxes for each client type
+                if (clientTypesToShow.length === 0) {
+                    container.innerHTML = '<small style="color: #666; font-size: 0.75rem;">No client types available for selected platforms</small>';
+                } else {
+                    clientTypesToShow.forEach(ct => {
+                        const label = document.createElement('label');
+                        label.style.cssText = 'display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 0.85rem;';
+                        
+                        const checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.className = 'client-type-checkbox';
+                        checkbox.value = ct.id;
+                        
+                        label.appendChild(checkbox);
+                        label.appendChild(document.createTextNode(ct.name));
+                        container.appendChild(label);
+                    });
+                }
+                
+            } catch (error) {
+                console.error('Error loading client types:', error);
+                const container = document.getElementById('minutesClientTypesContainer');
+                container.innerHTML = '<small style="color: #d32f2f; font-size: 0.75rem;">Error loading client types</small>';
+            }
+        }
+        
+        function hideMinutesViewer() {
+            document.getElementById('minutes-viewer-section').style.display = 'none';
+            document.getElementById('minutes-chart-container').style.display = 'none';
+            if (minutesChart) {
+                minutesChart.destroy();
+                minutesChart = null;
+            }
+        }
+        
+        async function loadMinutesAnalytics() {
+            const appId = document.getElementById('minutesAppId').value.trim();
+            if (!appId) {
+                showError('Please enter an App ID');
+                return;
+            }
+            
+            const startDate = document.getElementById('minutesStartDate').value;
+            const endDate = document.getElementById('minutesEndDate').value;
+            const period = document.getElementById('minutesPeriod').value;
+            
+            // Get selected platforms
+            const selectedPlatforms = Array.from(document.querySelectorAll('.platform-checkbox:checked')).map(cb => parseInt(cb.value));
+            
+            // Get selected client types
+            const selectedClientTypes = Array.from(document.querySelectorAll('.client-type-checkbox:checked')).map(cb => parseInt(cb.value));
+            
+            // Get selected roles
+            const selectedRoles = Array.from(document.querySelectorAll('.role-checkbox:checked')).map(cb => cb.value);
+            
+            // Get breakdown dimension (with fallback to default)
+            const breakdownBySelect = document.getElementById('minutesBreakdownBy');
+            const breakdownBy = breakdownBySelect ? breakdownBySelect.value : 'role';
+            
+            if (!startDate || !endDate) {
+                showError('Please select both start and end dates');
+                return;
+            }
+            
+            showLoading();
+            
+            try {
+                const requestBody = {
+                    app_id: appId,
+                    start_date: startDate + 'T00:00:00Z',
+                    end_date: endDate + 'T23:59:59Z',
+                    period: period,
+                    platforms: selectedPlatforms.length > 0 ? selectedPlatforms : null,
+                    client_types: selectedClientTypes.length > 0 ? selectedClientTypes : null,
+                    role: selectedRoles.length > 0 ? selectedRoles : null,
+                    breakdown_by: breakdownBy
+                };
+                
+                // Remove null values
+                Object.keys(requestBody).forEach(key => {
+                    if (requestBody[key] === null || requestBody[key] === undefined || requestBody[key] === '') {
+                        delete requestBody[key];
+                    }
+                });
+                
+                const response = await fetch(`/api/analytics/minutes/${appId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+                    throw new Error(errorData.detail || `HTTP ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                // Display chart
+                displayMinutesChart(data);
+                
+                // Display summary (async)
+                await displayMinutesSummary(data);
+                
+                document.getElementById('minutes-chart-container').style.display = 'block';
+                
+            } catch (error) {
+                console.error('Minutes analytics error:', error);
+                const errorMessage = error.message || error.toString() || 'Unknown error occurred';
+                showError(`Failed to load minutes analytics: ${errorMessage}`);
+            } finally {
+                hideLoading();
+            }
+        }
+        
+        function displayMinutesChart(data) {
+            const ctx = document.getElementById('minutesChart').getContext('2d');
+            
+            // Destroy existing chart if it exists
+            if (minutesChart) {
+                minutesChart.destroy();
+            }
+            
+            // Show warning if too many series
+            const warningDiv = document.getElementById('chart-warning');
+            const seriesCountSpan = document.getElementById('series-count');
+            if (data.series.length > 15) {
+                warningDiv.style.display = 'block';
+                seriesCountSpan.textContent = data.series.length;
+            } else {
+                warningDiv.style.display = 'none';
+            }
+            
+            const labels = data.data_points.map(dp => dp.display_date);
+            
+            // Build datasets from series
+            const datasets = data.series.map(series => ({
+                label: series.label,
+                data: series.data,
+                borderColor: series.color,
+                backgroundColor: series.color + '33', // Add transparency (hex alpha)
+                tension: 0.4,
+                fill: false,
+                pointRadius: data.series.length > 20 ? 2 : 3, // Smaller points if many series
+                pointHoverRadius: 5
+            }));
+            
+            // Configure legend based on number of series
+            const legendConfig = data.series.length > 10 ? {
+                display: true,
+                position: 'right',
+                align: 'start',
+                labels: {
+                    boxWidth: 10,
+                    padding: 4,
+                    font: {
+                        size: 10
+                    },
+                    usePointStyle: true,
+                    maxWidth: 200
+                },
+                // Make legend scrollable if too many items
+                maxHeight: 350
+            } : {
+                display: true,
+                position: 'top',
+                labels: {
+                    boxWidth: 12,
+                    padding: 8,
+                    usePointStyle: true
+                }
+            };
+            
+            minutesChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: `Minutes Usage Over Time (${data.period === 'day' ? 'Daily' : 'Monthly'}) - ${data.series.length} Series`,
+                            font: {
+                                size: 16,
+                                weight: 'bold'
+                            }
+                        },
+                        legend: legendConfig,
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.dataset.label}: ${context.parsed.y.toFixed(2)} minutes`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            stacked: false,
+                            title: {
+                                display: true,
+                                text: 'Minutes'
+                            },
+                            ticks: {
+                                callback: function(value) {
+                                    return value.toFixed(0);
+                                }
+                            }
+                        },
+                        x: {
+                            offset: true, // Add padding so first point isn't on the edge
+                            title: {
+                                display: true,
+                                text: data.period === 'day' ? 'Date' : 'Month'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        async function displayMinutesSummary(data) {
+            const summaryDiv = document.getElementById('minutes-summary-content');
+            
+            let summaryHTML = `<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">`;
+            
+            summaryHTML += `<div><strong>Total Minutes:</strong><br><span style="font-size: 1.5rem; color: #667eea;">${data.total_minutes.toFixed(2)}</span></div>`;
+            summaryHTML += `<div><strong>Period:</strong><br>${data.period === 'day' ? 'Daily' : 'Monthly'}</div>`;
+            summaryHTML += `<div><strong>Date Range:</strong><br>${new Date(data.start_date).toLocaleDateString()} - ${new Date(data.end_date).toLocaleDateString()}</div>`;
+            summaryHTML += `<div><strong>Series:</strong><br>${data.series.length} breakdown lines</div>`;
+            
+            // Add filter info
+            if ((data.filters.platforms && data.filters.platforms.length > 0) || (data.filters.client_types && data.filters.client_types.length > 0) || (data.filters.role && data.filters.role.length > 0)) {
+                summaryHTML += `<div style="grid-column: 1 / -1; margin-top: 10px; padding-top: 10px; border-top: 1px solid #ddd;"><strong>Applied Filters:</strong><br>`;
+                if (data.filters.platforms && data.filters.platforms.length > 0) {
+                    // Use platform mapping from backend
+                    const platformMapping = await getPlatformMapping();
+                    const platformList = data.filters.platforms.map(id => platformMapping[id] || id).join(', ');
+                    summaryHTML += `Platforms: ${platformList}<br>`;
+                }
+                if (data.filters.client_types && data.filters.client_types.length > 0) {
+                    const clientTypeNames = {3: 'Local Recording', 8: 'Applets', 10: 'Cloud Recording', 28: 'Media Pull', 30: 'Media Push', 43: 'Media Relay', 47: 'STT PubBot', 48: 'STT SubBot', 50: 'Media Gateway', 60: 'Conversational AI', 68: 'Real-Time STT'};
+                    const clientTypeList = data.filters.client_types.map(id => clientTypeNames[id] || id).join(', ');
+                    summaryHTML += `Client Types: ${clientTypeList}<br>`;
+                }
+                if (data.filters.role && data.filters.role.length > 0) {
+                    const roleList = data.filters.role.map(r => r.charAt(0).toUpperCase() + r.slice(1)).join(', ');
+                    summaryHTML += `Roles: ${roleList}<br>`;
+                }
+                summaryHTML += `</div>`;
+            }
+            
+            // Add series breakdown with scrollable container if many series
+            if (data.series && data.series.length > 0) {
+                const maxHeight = data.series.length > 10 ? '300px' : '200px';
+                summaryHTML += `<div style="grid-column: 1 / -1; margin-top: 10px; padding-top: 10px; border-top: 1px solid #ddd;"><strong>Breakdown by Series (${data.series.length}):</strong><br><div style="margin-top: 8px; max-height: ${maxHeight}; overflow-y: auto; overflow-x: hidden;">`;
+                data.series.forEach(series => {
+                    summaryHTML += `<div style="margin-bottom: 5px; padding: 5px; background: #f8f9fa; border-radius: 4px; border-left: 3px solid ${series.color};">`;
+                    summaryHTML += `<strong>${series.label}</strong>: ${series.total_minutes.toFixed(2)} minutes`;
+                    summaryHTML += `</div>`;
+                });
+                summaryHTML += `</div></div>`;
+            }
+            
+            summaryHTML += `</div>`;
+            
+            summaryDiv.innerHTML = summaryHTML;
+        }
+        
+        // Auto-load platforms and client types when app ID changes in minutes form
+        document.getElementById('minutesAppId').addEventListener('input', function(e) {
+            const appId = e.target.value.trim();
+            if (appId) {
+                // Load platforms and client types when app ID is entered
+                loadPlatformsForMinutes(appId);
+                loadClientTypesForMinutes(appId);
+            } else {
+                // Clear platforms and client types if no app ID
+                const platformsContainer = document.getElementById('minutesPlatformsContainer');
+                const clientTypesContainer = document.getElementById('minutesClientTypesContainer');
+                platformsContainer.innerHTML = '<small style="color: #666; font-size: 0.75rem;">Enter App ID to load available platforms</small>';
+                clientTypesContainer.innerHTML = '<small style="color: #666; font-size: 0.75rem;">Select platforms first to see available client types</small>';
+            }
+        });
+        
         // Initialize page from URL parameters when page loads
         document.addEventListener('DOMContentLoaded', function() {
             initializeFromURL();
@@ -2417,7 +3002,7 @@
     
     <!-- Jump to Top Button -->
     <button class="jump-to-top" id="jumpToTop" onclick="scrollToTop()" title="Jump to Top">
-        ↑
+        ?
     </button>
 </body>
 </html>

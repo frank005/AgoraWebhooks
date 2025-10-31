@@ -21,12 +21,24 @@ PRODUCT_ID_MAPPING = {
     5: "Media Push"
 }
 
-# Client Type mappings (only for Linux platform)
+# Client Type mappings (used across all platforms/products)
 CLIENT_TYPE_MAPPING = {
-    3: "Local server recording",
+    3: "Local Recording",
     8: "Applets", 
-    10: "Cloud recording"
+    10: "Cloud Recording",
+    28: "Media Pull",
+    30: "Media Push",
+    43: "Media Relay",
+    47: "STT PubBot",
+    48: "STT SubBot",
+    50: "Media Gateway",
+    60: "Conversational AI",
+    68: "Real-Time STT"
 }
+
+def get_client_type_name(client_type_id):
+    """Get client type name from client type ID"""
+    return CLIENT_TYPE_MAPPING.get(client_type_id, f"Client Type {client_type_id}")
 
 def get_platform_name(platform_id, client_type=None):
     """Get platform name from platform ID, optionally with client type for Linux"""

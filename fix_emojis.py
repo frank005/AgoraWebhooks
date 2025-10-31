@@ -98,12 +98,16 @@ def fix_all_emojis():
         # Icons in comments
         (r"//\s*Mic icon\s*\((\?|\?\?)\)", "// Mic icon (🎤)"),
         (r"//\s*Ear icon\s*\((\?|\?\?)\)", "// Ear icon (👂)"),
-        # Icon variables - handle all variations
+        # Icon variables - handle all variations (more comprehensive patterns)
         (r"const\s+finalIcon\s*=\s*isHost\s*\?\s*'🎤'\s*:\s*'(\?|\?\?)'", "const finalIcon = isHost ? '🎤' : '👂'"),
         (r"const\s+finalIcon\s*=\s*isHost\s*\?\s*'(\?|\?\?)'\s*:\s*'(\?|\?\?)'", "const finalIcon = isHost ? '🎤' : '👂'"),
         (r"const\s+initialIcon\s*=\s*isHost\s*\?\s*'👂'\s*:\s*'(\?|\?\?)'", "const initialIcon = isHost ? '👂' : '🎤'"),
         (r"const\s+initialIcon\s*=\s*isHost\s*\?\s*'(\?|\?\?)'\s*:\s*'(\?|\?\?)'", "const initialIcon = isHost ? '👂' : '🎤'"),
         (r"const\s+icon\s*=\s*isHost\s*\?\s*'(\?|\?\?)'\s*:\s*'(\?|\?\?)'", "const icon = isHost ? '🎤' : '👂'"),
+        # Fix "Many Series Detected" warning
+        (r"<strong>(\?\?)\s*Many Series Detected:", "<strong>⚠️ Many Series Detected:"),
+        # Fix comment with broken emojis
+        (r"// Mic icon \((\?\?)\) for Host, Ear icon \((\?\?)\) for Audience", "// Mic icon (🎤) for Host, Ear icon (👂) for Audience"),
         # Headers
         (r"<h4>(\?|\?\?)\s*Panel", "<h4>👤 Panel"),
         (r"<h3>(\?|\?\?)\s*Overview</h3>", "<h3>📊 Overview</h3>"),
@@ -150,6 +154,58 @@ def fix_all_emojis():
         html_content = re.sub(pattern, replacement, html_content)
         if matches > 0:
             html_fixed_count += matches
+    
+    # Additional direct fixes for patterns that are hard to regex (inside template literals)
+    before_count = html_content.count("const finalIcon = isHost ? '??' : '??';")
+    html_content = html_content.replace("const finalIcon = isHost ? '??' : '??';", "const finalIcon = isHost ? '🎤' : '👂';")
+    html_content = html_content.replace("const finalIcon = isHost ? '??' : '??';", "const finalIcon = isHost ? '🎤' : '👂';")
+    html_content = html_content.replace("const initialIcon = isHost ? '??' : '??';", "const initialIcon = isHost ? '👂' : '🎤';")
+    html_content = html_content.replace("const icon = isHost ? '??' : '??';", "const icon = isHost ? '🎤' : '👂';")
+    
+    # Fix flag mappings directly
+    html_content = html_content.replace("text: '?? Local Recording'", "text: '📹 Local Recording'")
+    html_content = html_content.replace("text: '?? Applets'", "text: '📱 Applets'")
+    html_content = html_content.replace("text: '?? Cloud Recording'", "text: '☁️ Cloud Recording'")
+    html_content = html_content.replace("text: '?? Media Pull'", "text: '⬇️ Media Pull'")
+    html_content = html_content.replace("text: '?? Media Push'", "text: '⬆️ Media Push'")
+    html_content = html_content.replace("text: '?? Media Relay'", "text: '🔄 Media Relay'")
+    html_content = html_content.replace("text: '?? STT PubBot'", "text: '🎤 STT PubBot'")
+    html_content = html_content.replace("text: '?? STT SubBot'", "text: '🎧 STT SubBot'")
+    html_content = html_content.replace("text: '?? Media Gateway'", "text: '🌐 Media Gateway'")
+    html_content = html_content.replace("text: '?? Conversational AI'", "text: '🤖 Conversational AI'")
+    html_content = html_content.replace("text: '??? Real-Time STT'", "text: '🎙️ Real-Time STT'")
+    
+    # Fix "Many Series Detected" warning - handle both with and without spaces
+    html_content = html_content.replace("<strong>?? Many Series Detected:", "<strong>⚠️ Many Series Detected:")
+    html_content = html_content.replace('">?? Role Analytics', '">👥 Role Analytics')
+    html_content = html_content.replace('">?? Quality Metrics', '">📊 Quality Metrics')
+    html_content = html_content.replace('">???? Multi-User View', '">👥👥 Multi-User View')
+    html_content = html_content.replace("textContent = '?? Share Link'", "textContent = '📋 Share Link'")
+    html_content = html_content.replace("// Mic icon (??) for Host, Ear icon (??) for Audience", "// Mic icon (🎤) for Host, Ear icon (👂) for Audience")
+    html_content = html_content.replace("<h4>?? Panel", "<h4>👤 Panel")
+    html_content = html_content.replace("<h3>?? Overview</h3>", "<h3>📊 Overview</h3>")
+    html_content = html_content.replace("<h3>?? Platform Distribution</h3>", "<h3>📱 Platform Distribution</h3>")
+    html_content = html_content.replace("<h3>?? Product Usage</h3>", "<h3>🔧 Product Usage</h3>")
+    html_content = html_content.replace("<h3>?? Quality Metrics</h3>", "<h3>📊 Quality Metrics</h3>")
+    html_content = html_content.replace("<h3>?? Channels List</h3>", "<h3>📋 Channels List</h3>")
+    html_content = html_content.replace("<h3>?? Quality Insights</h3>", "<h3>⚠️ Quality Insights</h3>")
+    html_content = html_content.replace("<h3>?? Role Breakdown</h3>", "<h3>👥 Role Breakdown</h3>")
+    html_content = html_content.replace("<h3>?? Platform Usage</h3>", "<h3>📱 Platform Usage</h3>")
+    html_content = html_content.replace("<h3>?? Quality Overview</h3>", "<h3>📊 Quality Overview</h3>")
+    html_content = html_content.replace("<h3>?? Concurrent Users Over Time</h3>", "<h3>📈 Concurrent Users Over Time</h3>")
+    html_content = html_content.replace("<h3>?? Session Length Distribution</h3>", "<h3>📈 Session Length Distribution</h3>")
+    html_content = html_content.replace("const finalIcon = isHost ? '??' : '??';", "const finalIcon = isHost ? '🎤' : '👂';")
+    html_content = html_content.replace("const initialIcon = isHost ? '??' : '??';", "const initialIcon = isHost ? '👂' : '🎤';")
+    html_content = html_content.replace("const icon = isHost ? '??' : '??';", "const icon = isHost ? '🎤' : '👂';")
+    # Fix any remaining ?? after emojis
+    html_content = html_content.replace("📊??", "📊")
+    
+    # Count how many we fixed
+    after_final = html_content.count("const finalIcon = isHost ? '🎤' : '👂';")
+    after_initial = html_content.count("const initialIcon = isHost ? '👂' : '🎤';")
+    after_icon = html_content.count("const icon = isHost ? '🎤' : '👂';")
+    if before_count > 0:
+        html_fixed_count += before_count
     
     with open(html_path, 'w', encoding='utf-8') as f:
         f.write(html_content)

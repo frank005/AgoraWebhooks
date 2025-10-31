@@ -4,6 +4,7 @@ import logging
 import time
 import functools
 from datetime import datetime, timedelta
+from calendar import monthrange
 from typing import Dict, Any
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException, Depends, Form
@@ -17,7 +18,7 @@ import uvicorn
 
 from config import Config
 from database import get_db, create_tables, ChannelSession, ChannelMetrics, UserMetrics, WebhookEvent, RoleEvent
-from models import WebhookRequest, ChannelSessionResponse, ChannelMetricsResponse, UserMetricsResponse, ChannelListResponse, ChannelDetailResponse, ExportRequest, ExportResponse, UserDetailResponse, RoleAnalyticsResponse, QualityMetricsResponse
+from models import WebhookRequest, ChannelSessionResponse, ChannelMetricsResponse, UserMetricsResponse, ChannelListResponse, ChannelDetailResponse, ExportRequest, ExportResponse, UserDetailResponse, RoleAnalyticsResponse, QualityMetricsResponse, MinutesAnalyticsRequest, MinutesAnalyticsResponse
 from webhook_processor import WebhookProcessor
 from export_service import ExportService
 from security import SecurityConfig, rate_limiter, get_rate_limit_headers, WebhookValidator, ExportSecurity
@@ -1216,16 +1217,8 @@ async def get_channel_multi_user_analytics(app_id: str, channel_name: str, sessi
 
 def get_platform_name(platform_id: int) -> str:
     """Convert platform ID to readable name"""
-    platform_map = {
-        1: "Web",
-        2: "iOS", 
-        3: "Android",
-        4: "Windows",
-        5: "macOS",
-        6: "Linux",
-        7: "WebRTC"
-    }
-    return platform_map.get(platform_id, f"Platform {platform_id}")
+    from mappings import PLATFORM_MAPPING
+    return PLATFORM_MAPPING.get(platform_id, f"Platform {platform_id}")
 
 def get_product_name(product_id: int) -> str:
     """Convert product ID to readable name"""
@@ -1442,6 +1435,330 @@ async def get_public_share(token: str, db: Session = Depends(get_db)):
         
     except Exception as e:
         logger.error(f"Error getting public share {token}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.post("/api/analytics/minutes/{app_id}", response_model=MinutesAnalyticsResponse)
+async def get_minutes_analytics(app_id: str, request_body: MinutesAnalyticsRequest, db: Session = Depends(get_db)):
+    """Get total minutes analytics per day or per month with filters"""
+    try:
+        # Set app_id from URL path
+        request_body.app_id = app_id
+        
+        # Default to last 30 days if no date range provided
+        if not request_body.start_date:
+            request_body.start_date = datetime.utcnow() - timedelta(days=30)
+        if not request_body.end_date:
+            request_body.end_date = datetime.utcnow()
+        
+        # Normalize dates to full months if period is "month"
+        if request_body.period == "month":
+            from calendar import monthrange
+            # Normalize start_date to first day of the month
+            start_date_normalized = request_body.start_date.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            
+            # Normalize end_date to last day of the month
+            last_day = monthrange(request_body.end_date.year, request_body.end_date.month)[1]
+            end_date_normalized = request_body.end_date.replace(day=last_day, hour=23, minute=59, second=59, microsecond=999999)
+            
+            # Use normalized dates for query
+            query_start_date = start_date_normalized
+            query_end_date = end_date_normalized
+        else:
+            # Use dates as-is for daily period
+            query_start_date = request_body.start_date
+            query_end_date = request_body.end_date
+        
+        # Build query
+        query = db.query(ChannelSession).filter(
+            ChannelSession.app_id == app_id,
+            ChannelSession.join_time >= query_start_date,
+            ChannelSession.join_time <= query_end_date,
+            ChannelSession.duration_seconds.isnot(None)
+        )
+        
+        # Apply platform filter (multi-select)
+        if request_body.platforms and len(request_body.platforms) > 0:
+            query = query.filter(ChannelSession.platform.in_(request_body.platforms))
+        
+        # Apply client type filter (multi-select)
+        if request_body.client_types and len(request_body.client_types) > 0:
+            query = query.filter(ChannelSession.client_type.in_(request_body.client_types))
+        
+        # Apply role filter (multi-select)
+        if request_body.role and len(request_body.role) > 0:
+            # If roles are specified, filter to only include those roles
+            role_filters = []
+            if "host" in request_body.role:
+                role_filters.append(ChannelSession.is_host == True)
+            if "audience" in request_body.role:
+                role_filters.append(ChannelSession.is_host == False)
+            if role_filters:
+                from sqlalchemy import or_
+                query = query.filter(or_(*role_filters))
+        
+        sessions = query.all()
+        
+        # Aggregate by period and breakdown dimension
+        period_format = "%Y-%m-%d" if request_body.period == "day" else "%Y-%m"
+        
+        # Group data by series key based on breakdown_by option
+        # If breakdown_by == "role": group by (role, client_type)
+        # If breakdown_by == "platform": group by (platform, client_type)
+        series_data = {}
+        
+        # Get all unique combinations
+        from mappings import get_client_type_name, get_platform_name
+        
+        for session in sessions:
+            # Get client type
+            client_type = session.client_type
+            
+            # Determine series key based on breakdown_by
+            if request_body.breakdown_by == "platform":
+                # Group by platform + client_type
+                platform = session.platform
+                series_key = (platform, client_type)
+            else:
+                # Default: group by role + client_type
+                role = "host" if session.is_host else "audience"
+                series_key = (role, client_type)
+            
+            # Get date key
+            session_date = session.join_time.date()
+            date_key = session_date.strftime(period_format)
+            
+            # Initialize series if needed
+            if series_key not in series_data:
+                series_data[series_key] = {}
+            
+            # Add minutes to this series/date
+            if date_key not in series_data[series_key]:
+                series_data[series_key][date_key] = 0.0
+            series_data[series_key][date_key] += (session.duration_seconds or 0) / 60.0
+        
+        # Generate all date keys for the period
+        all_date_keys = []
+        if request_body.period == "day":
+            current_date = request_body.start_date.date()
+            end_date = request_body.end_date.date()
+            while current_date <= end_date:
+                date_key = current_date.strftime(period_format)
+                display_date = current_date.strftime("%b %d, %Y")
+                all_date_keys.append({"date": date_key, "display_date": display_date})
+                current_date += timedelta(days=1)
+        else:
+            # For monthly, iterate through all months from normalized start to normalized end
+            current_date = query_start_date.date().replace(day=1)
+            end_date_obj = query_end_date.date()
+            
+            while current_date <= end_date_obj:
+                month_key = current_date.strftime(period_format)
+                if month_key not in [d["date"] for d in all_date_keys]:
+                    month_name = current_date.strftime("%B %Y")
+                    all_date_keys.append({"date": month_key, "display_date": month_name})
+                
+                # Move to next month
+                if current_date.month == 12:
+                    current_date = current_date.replace(year=current_date.year + 1, month=1, day=1)
+                else:
+                    current_date = current_date.replace(month=current_date.month + 1, day=1)
+        
+        # Sort date keys
+        all_date_keys.sort(key=lambda x: x["date"])
+        
+        # Build series with data points
+        series_list = []
+        color_palette = [
+            '#667eea', '#764ba2', '#f093fb', '#4facfe', '#00f2fe',
+            '#43e97b', '#fa709a', '#fee140', '#fa709a', '#30cfd0',
+            '#a8edea', '#fed6e3', '#ff9a9e', '#fecfef', '#fecfef'
+        ]
+        
+        # Sort series keys, handling None values
+        def sort_key(item):
+            key = item[0]
+            if request_body.breakdown_by == "platform":
+                platform, client_type = key
+                return (platform or 0, client_type or 0)
+            else:
+                role, client_type = key
+                return (role, client_type or 0)
+        
+        sorted_series = sorted(series_data.items(), key=sort_key)
+        
+        series_index = 0
+        for series_key, date_data in sorted_series:
+            # Build label based on breakdown_by
+            if request_body.breakdown_by == "platform":
+                platform, client_type = series_key
+                platform_name = get_platform_name(platform) if platform else None
+                client_type_name = get_client_type_name(client_type) if client_type else None
+                
+                if platform_name and client_type_name:
+                    label = f"{platform_name} - {client_type_name}"
+                elif platform_name:
+                    label = platform_name
+                elif client_type_name:
+                    label = f"Unknown Platform - {client_type_name}"
+                else:
+                    label = "Unknown"
+            else:
+                # Default: role + client_type
+                role, client_type = series_key
+                role_label = role.capitalize()
+                client_type_name = get_client_type_name(client_type) if client_type else None
+                
+                if client_type_name:
+                    label = f"{role_label} - {client_type_name}"
+                else:
+                    label = role_label
+            
+            # Build data points for this series
+            data_points = []
+            for date_info in all_date_keys:
+                date_key = date_info["date"]
+                minutes = round(date_data.get(date_key, 0.0), 2)
+                data_points.append(minutes)
+            
+            # Calculate total for this series
+            series_total = sum(data_points)
+            
+            # Only include series with data
+            if series_total > 0:
+                series_info = {
+                    "label": label,
+                    "data": data_points,
+                    "total_minutes": round(series_total, 2),
+                    "color": color_palette[series_index % len(color_palette)]
+                }
+                
+                # Add dimension-specific fields
+                if request_body.breakdown_by == "platform":
+                    platform, client_type = series_key
+                    series_info["platform"] = platform
+                    series_info["platform_name"] = get_platform_name(platform) if platform else None
+                    series_info["client_type"] = client_type
+                    series_info["client_type_name"] = get_client_type_name(client_type) if client_type else None
+                else:
+                    role, client_type = series_key
+                    series_info["role"] = role
+                    series_info["client_type"] = client_type
+                    series_info["client_type_name"] = get_client_type_name(client_type) if client_type else None
+                
+                series_list.append(series_info)
+                series_index += 1
+        
+        # Calculate total minutes across all series
+        total_minutes = sum(s["total_minutes"] for s in series_list)
+        
+        # Build data_points for backward compatibility (total across all series)
+        data_points = []
+        for date_info in all_date_keys:
+            date_key = date_info["date"]
+            total_for_date = sum(
+                series_data.get(key, {}).get(date_key, 0.0)
+                for key in series_data.keys()
+            )
+            data_points.append({
+                "date": date_key,
+                "minutes": round(total_for_date, 2),
+                "display_date": date_info["display_date"]
+            })
+        
+        # Build filters dict
+        filters = {
+            "platforms": request_body.platforms,
+            "client_types": request_body.client_types,
+            "role": request_body.role,
+            "breakdown_by": request_body.breakdown_by
+        }
+        
+        return MinutesAnalyticsResponse(
+            app_id=app_id,
+            start_date=request_body.start_date,
+            end_date=request_body.end_date,
+            period=request_body.period,
+            total_minutes=round(total_minutes, 2),
+            data_points=data_points,
+            filters=filters,
+            series=series_list
+        )
+        
+    except Exception as e:
+        logger.error(f"Error getting minutes analytics for app_id {app_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/api/mappings/platforms")
+async def get_platform_mapping():
+    """Get platform ID to name mapping"""
+    from mappings import PLATFORM_MAPPING
+    return {"platform_mapping": PLATFORM_MAPPING}
+
+@app.get("/api/analytics/platforms/{app_id}")
+async def get_platforms_for_app(app_id: str, db: Session = Depends(get_db)):
+    """Get available platforms for an app"""
+    try:
+        platforms = db.query(ChannelSession.platform).filter(
+            ChannelSession.app_id == app_id,
+            ChannelSession.platform.isnot(None)
+        ).distinct().all()
+        
+        platform_list = [p[0] for p in platforms if p[0] is not None]
+        platform_list.sort()
+        
+        # Get names from mappings
+        from mappings import PLATFORM_MAPPING
+        platforms_with_names = [
+            {
+                "id": pid,
+                "name": PLATFORM_MAPPING.get(pid, f"Platform {pid}")
+            }
+            for pid in platform_list
+        ]
+        
+        return {
+            "app_id": app_id,
+            "platforms": platforms_with_names
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting platforms for app_id {app_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/api/analytics/client-types/{app_id}")
+async def get_client_types_for_app(app_id: str, platform_id: int = None, db: Session = Depends(get_db)):
+    """Get available client types for an app, optionally filtered by platform"""
+    try:
+        query = db.query(ChannelSession.client_type).filter(
+            ChannelSession.app_id == app_id,
+            ChannelSession.client_type.isnot(None)
+        )
+        
+        if platform_id:
+            query = query.filter(ChannelSession.platform == platform_id)
+        
+        client_types = query.distinct().all()
+        client_type_list = [ct[0] for ct in client_types if ct[0] is not None]
+        client_type_list.sort()
+        
+        # Get names from mappings
+        from mappings import get_client_type_name
+        client_types_with_names = [
+            {
+                "id": ct,
+                "name": get_client_type_name(ct)
+            }
+            for ct in client_type_list
+        ]
+        
+        return {
+            "app_id": app_id,
+            "platform_id": platform_id,
+            "client_types": client_types_with_names
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting client types for app_id {app_id}: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

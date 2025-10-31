@@ -179,3 +179,50 @@ class QualityMetricsResponse(BaseModel):
     concurrency_over_time: Optional[List[List[float]]] = None  # List of [timestamp, count] pairs
     quality_score: float
     insights: List[str]
+
+class MinutesAnalyticsRequest(BaseModel):
+    """Request model for minutes analytics"""
+    app_id: str
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    period: str = "day"  # "day" or "month"
+    platforms: Optional[List[int]] = None  # List of platform IDs (1=Android, 2=iOS, 5=Windows, 6=Linux, 7=Web, 8=macOS)
+    client_types: Optional[List[int]] = None  # List of client types
+    role: Optional[List[str]] = None  # List of roles: ["host"], ["audience"], or ["host", "audience"], or None for all
+    breakdown_by: str = "role"  # "role" or "platform" - determines grouping dimension
+    
+    @field_validator('start_date', 'end_date', mode='before')
+    @classmethod
+    def parse_datetime_strings(cls, v):
+        """Parse datetime strings from JSON"""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            # Handle ISO format with Z timezone
+            v = v.replace('Z', '+00:00')
+            try:
+                return datetime.fromisoformat(v)
+            except ValueError:
+                # Try parsing as ISO format without timezone
+                try:
+                    return datetime.fromisoformat(v.replace('+00:00', ''))
+                except ValueError:
+                    raise ValueError(f"Invalid date format: {v}")
+        return v
+    
+    class Config:
+        # Allow datetime strings to be parsed automatically
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
+
+class MinutesAnalyticsResponse(BaseModel):
+    """Response model for minutes analytics"""
+    app_id: str
+    start_date: datetime
+    end_date: datetime
+    period: str
+    total_minutes: float
+    data_points: List[Dict[str, Any]]  # List of {date: str, minutes: float, ...}
+    filters: Dict[str, Any]  # Applied filters
+    series: List[Dict[str, Any]]  # List of series with breakdown by role/product/clientType
