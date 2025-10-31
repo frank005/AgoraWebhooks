@@ -194,6 +194,10 @@ print_warning "   - Certbot needs port 80 to validate domain ownership"
 # Create nginx configuration (without SSL initially - certbot will add it)
 print_status "Creating nginx configuration..."
 sudo tee /etc/nginx/sites-available/agora-webhooks > /dev/null << EOF
+server {
+    listen 80;
+    server_name ${DOMAIN_NAME} www.${DOMAIN_NAME};
+    
     # Proxy to FastAPI application (HTTP only for now)
     # Certbot will modify this to redirect to HTTPS and add SSL server block
     location / {
