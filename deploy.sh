@@ -159,7 +159,7 @@ SSL_KEY_PATH=/etc/letsencrypt/live/${DOMAIN_NAME}/privkey.pem
 
 # Logging
 LOG_LEVEL=INFO
-LOG_FILE=/var/log/agora-webhooks.log
+LOG_FILE=$APP_DIR/agora-webhooks.log
 
 # Background Processing
 MAX_WORKERS=4
@@ -389,7 +389,7 @@ sudo chmod +x /opt/agora-webhooks/monitor.sh
 
 # Add cron job for monitoring
 print_status "Setting up monitoring cron job..."
-(crontab -l 2>/dev/null; echo "*/5 * * * * /opt/agora-webhooks/monitor.sh") | crontab -
+(crontab -l 2>/dev/null; echo "*/5 * * * * $APP_DIR/monitor.sh") | crontab -
 CRON_ADDED=true
 
 # Reload systemd and start services
@@ -397,11 +397,11 @@ print_status "Starting services..."
 
 # Ensure templates directory exists
 print_status "Ensuring templates directory exists..."
-sudo -u $USER mkdir -p $APP_DIR/templates
+mkdir -p $APP_DIR/templates
 
 # Test that the application can start
 print_status "Testing application startup..."
-if sudo -u $USER $APP_DIR/venv/bin/python -c "from database import create_tables; create_tables(); print('Database OK')" 2>&1; then
+if $APP_DIR/venv/bin/python -c "from database import create_tables; create_tables(); print('Database OK')" 2>&1; then
     print_status "✅ Database initialization test passed"
 else
     print_error "❌ Database initialization failed!"
@@ -409,16 +409,18 @@ else
 fi
 
 # Ensure log file exists and has correct permissions
-sudo touch /var/log/agora-webhooks.log
-sudo chown $USER:$USER /var/log/agora-webhooks.log
-sudo chmod 644 /var/log/agora-webhooks.log
+touch $APP_DIR/agora-webhooks.log 2>/dev/null || true
 
 # Ensure database directory is writable
 print_status "Ensuring database directory is writable..."
 sudo -u $USER touch $APP_DIR/agora_webhooks.db.test 2>/dev/null && rm -f $APP_DIR/agora_webhooks.db.test || {
-    print_error "❌ Cannot write to $APP_DIR - check permissions"
+    print_error "❌ Cannot write to $APP_DIR - fixing permissions..."
     sudo chown -R $USER:$USER $APP_DIR
+    sudo chmod -R u+w $APP_DIR
 }
+
+# Ensure .env file permissions
+chmod 644 $APP_DIR/.env 2>/dev/null || true
 
 sudo systemctl daemon-reload
 sudo systemctl enable agora-webhooks
