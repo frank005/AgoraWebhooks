@@ -191,32 +191,11 @@ print_warning "   - The script configures UFW firewall (port 80 is now allowed)"
 print_warning "   - You MUST also open port 80 in your cloud provider's security group/firewall"
 print_warning "   - Certbot needs port 80 to validate domain ownership"
 
-# Create nginx configuration
+# Create nginx configuration (without SSL initially - certbot will add it)
 print_status "Creating nginx configuration..."
 sudo tee /etc/nginx/sites-available/agora-webhooks > /dev/null << EOF
-server {
-    listen 80;
-    server_name ${DOMAIN_NAME} www.${DOMAIN_NAME};
-    
-    # Redirect HTTP to HTTPS
-    return 301 https://\$server_name\$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name ${DOMAIN_NAME} www.${DOMAIN_NAME};
-    
-    # SSL configuration (will be updated by certbot)
-    ssl_certificate /etc/letsencrypt/live/${DOMAIN_NAME}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN_NAME}/privkey.pem;
-    
-    # Security headers
-    add_header X-Frame-Options DENY;
-    add_header X-Content-Type-Options nosniff;
-    add_header X-XSS-Protection "1; mode=block";
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-    
-    # Proxy to FastAPI application
+    # Proxy to FastAPI application (HTTP only for now)
+    # Certbot will modify this to redirect to HTTPS and add SSL server block
     location / {
         proxy_pass http://127.0.0.1:8000;
         proxy_set_header Host \$host;
@@ -260,11 +239,18 @@ if [ "$RUN_CERTBOT" = "y" ] || [ "$RUN_CERTBOT" = "Y" ]; then
     if ! systemctl is-active --quiet nginx; then
         print_status "Starting nginx..."
         sudo systemctl start nginx
-        sleep 2  # Give nginx time to start
+        sleep 3  # Give nginx time to start
+    else
+        print_status "Reloading nginx..."
+        sudo systemctl reload nginx
+        sleep 2  # Give nginx time to reload
     fi
     
     # Check port 80 accessibility before running certbot
     print_status "Verifying port 80 is accessible..."
+    
+    # Wait a bit more for nginx to fully start
+    sleep 2
     
     # Check if nginx is listening on port 80
     if ! (sudo netstat -tuln 2>/dev/null | grep -q ':80 ' || sudo ss -tuln 2>/dev/null | grep -q ':80 '); then
@@ -293,7 +279,7 @@ if [ "$RUN_CERTBOT" = "y" ] || [ "$RUN_CERTBOT" = "Y" ]; then
     print_warning "   Note: Make sure port 80 is also open in your cloud provider's firewall/security group"
     
     # Run certbot with nginx plugin (don't suppress errors)
-    print_status "Running certbot..."
+    print_status "Running certbot (this may take 30-60 seconds)..."
     if sudo certbot --nginx -d ${DOMAIN_NAME} -d www.${DOMAIN_NAME} --non-interactive --agree-tos --email ${CERTBOT_EMAIL}; then
         print_status "✅ SSL certificate obtained successfully"
         # Reload nginx after certbot
