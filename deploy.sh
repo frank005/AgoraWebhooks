@@ -101,15 +101,6 @@ fi
 
 APP_DIR_CREATED=false  # We're not creating it, we're using existing
 
-# Copy application files (exclude .git, venv, and other unnecessary files)
-print_status "Copying application files..."
-rsync -av --exclude='.git' --exclude='venv' --exclude='.env' --exclude='__pycache__' --exclude='*.pyc' --exclude='*.db' --exclude='*.log' --exclude='backups' --exclude='old' . $APP_DIR/ 2>/dev/null || {
-    # Fallback to cp if rsync not available
-    print_status "Using cp (rsync not available)..."
-    find . -maxdepth 1 -not -name '.' -not -name '.git' -not -name 'venv' -not -name '.env' -not -name '__pycache__' -not -name 'backups' -not -name 'old' -exec cp -r {} $APP_DIR/ \;
-}
-cd $APP_DIR
-
 # Fix emojis before deployment
 print_status "Fixing emojis..."
 if [ -f "fix_emojis.py" ]; then
