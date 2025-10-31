@@ -71,6 +71,15 @@ print_status "Installing Python dependencies..."
 pip install --upgrade pip
 pip install -r requirements.txt
 
+# Prompt for domain name (needed for .env and nginx config)
+print_status "Please enter your domain name for SSL certificate setup"
+read -p "Domain name (e.g., example.com): " DOMAIN_NAME
+if [ -z "$DOMAIN_NAME" ]; then
+    print_warning "No domain name provided. Using placeholder 'your-domain.com'"
+    print_warning "You will need to update it manually later."
+    DOMAIN_NAME="your-domain.com"
+fi
+
 # Create environment file
 print_status "Creating environment configuration..."
 cat > .env << EOF
@@ -79,9 +88,9 @@ DATABASE_URL=sqlite:///./agora_webhooks.db
 
 # Server Configuration
 HOST=0.0.0.0
-PORT=443
-SSL_CERT_PATH=/etc/letsencrypt/live/your-domain.com/fullchain.pem
-SSL_KEY_PATH=/etc/letsencrypt/live/your-domain.com/privkey.pem
+PORT=8000
+SSL_CERT_PATH=/etc/letsencrypt/live/${DOMAIN_NAME}/fullchain.pem
+SSL_KEY_PATH=/etc/letsencrypt/live/${DOMAIN_NAME}/privkey.pem
 
 # Security (no authentication required)
 
@@ -133,7 +142,7 @@ print_status "Creating nginx configuration..."
 sudo tee /etc/nginx/sites-available/agora-webhooks > /dev/null << EOF
 server {
     listen 80;
-    server_name your-domain.com www.your-domain.com;
+    server_name ${DOMAIN_NAME} www.${DOMAIN_NAME};
     
     # Redirect HTTP to HTTPS
     return 301 https://\$server_name\$request_uri;
@@ -141,11 +150,11 @@ server {
 
 server {
     listen 443 ssl http2;
-    server_name your-domain.com www.your-domain.com;
+    server_name ${DOMAIN_NAME} www.${DOMAIN_NAME};
     
     # SSL configuration (will be updated by certbot)
-    ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/${DOMAIN_NAME}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN_NAME}/privkey.pem;
     
     # Security headers
     add_header X-Frame-Options DENY;
@@ -176,6 +185,36 @@ sudo rm -f /etc/nginx/sites-enabled/default
 # Test nginx configuration
 sudo nginx -t
 
+# Prompt for certificate setup
+print_status "SSL Certificate Setup"
+print_warning "You need to obtain an SSL certificate for ${DOMAIN_NAME}"
+read -p "Do you want to run certbot now to obtain a Let's Encrypt certificate? (y/N): " RUN_CERTBOT
+
+if [ "$RUN_CERTBOT" = "y" ] || [ "$RUN_CERTBOT" = "Y" ]; then
+    print_status "Running certbot to obtain SSL certificate..."
+    print_warning "Make sure your domain ${DOMAIN_NAME} points to this server's IP address"
+    read -p "Email address for Let's Encrypt notifications (optional): " CERTBOT_EMAIL
+    
+    if [ -z "$CERTBOT_EMAIL" ]; then
+        CERTBOT_EMAIL="admin@${DOMAIN_NAME}"
+    fi
+    
+    read -p "Press Enter to continue with certbot (or Ctrl+C to cancel)..."
+    
+    # Run certbot with nginx plugin
+    if sudo certbot --nginx -d ${DOMAIN_NAME} -d www.${DOMAIN_NAME} --non-interactive --agree-tos --email ${CERTBOT_EMAIL} 2>/dev/null; then
+        print_status "✅ SSL certificate obtained successfully"
+        # Reload nginx after certbot
+        sudo systemctl reload nginx
+    else
+        print_warning "⚠️  Certbot setup failed or requires interaction"
+        print_warning "You can run it manually later with: sudo certbot --nginx -d ${DOMAIN_NAME}"
+    fi
+else
+    print_warning "Skipping certificate setup. You can run it later with:"
+    print_warning "  sudo certbot --nginx -d ${DOMAIN_NAME}"
+fi
+
 # Create monitoring script
 print_status "Creating monitoring script..."
 sudo tee /opt/agora-webhooks/monitor.sh > /dev/null << 'EOF'
@@ -185,6 +224,7 @@ sudo tee /opt/agora-webhooks/monitor.sh > /dev/null << 'EOF'
 # This script checks if the service is running and restarts it if needed
 
 SERVICE_NAME="agora-webhooks"
+HEALTH_URL="http://localhost:8000/health"
 LOG_FILE="/var/log/agora-webhooks-monitor.log"
 
 log_message() {
@@ -199,15 +239,27 @@ check_service() {
     fi
 }
 
+check_service_health() {
+    local response
+    response=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL" 2>/dev/null)
+    if [ "$response" = "200" ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 restart_service() {
-    log_message "Service $SERVICE_NAME is not running. Attempting to restart..."
+    log_message "Service $SERVICE_NAME is not running or unhealthy. Attempting to restart..."
     systemctl restart $SERVICE_NAME
     sleep 5
     
     if check_service; then
         log_message "Service $SERVICE_NAME restarted successfully"
+        return 0
     else
         log_message "Failed to restart service $SERVICE_NAME"
+        return 1
     fi
 }
 
@@ -215,7 +267,13 @@ restart_service() {
 if ! check_service; then
     restart_service
 else
-    log_message "Service $SERVICE_NAME is running normally"
+    # Service is running, check health endpoint
+    if ! check_service_health; then
+        log_message "Service is running but health check failed. Attempting restart..."
+        restart_service
+    else
+        log_message "Service $SERVICE_NAME is running normally"
+    fi
 fi
 EOF
 
@@ -243,12 +301,13 @@ else
 fi
 
 print_status "🎉 Deployment completed successfully!"
-print_warning "⚠️  IMPORTANT: You need to:"
-print_warning "1. Update the domain name in /etc/nginx/sites-available/agora-webhooks"
-print_warning "2. Update the SSL certificate paths in $APP_DIR/.env"
-print_warning "3. Run: sudo certbot --nginx -d your-domain.com"
-print_warning "4. Configure your Agora Console to send webhooks to your server"
-print_warning "5. Configure your Agora Console to send webhooks to https://your-domain.com/{app_id}/webhooks"
+print_warning "⚠️  IMPORTANT: Next steps:"
+print_warning "1. Domain configured: ${DOMAIN_NAME}"
+if [ "$RUN_CERTBOT" != "y" ] && [ "$RUN_CERTBOT" != "Y" ]; then
+    print_warning "2. Run SSL certificate setup: sudo certbot --nginx -d ${DOMAIN_NAME}"
+fi
+print_warning "3. Configure your Agora Console to send webhooks to: https://${DOMAIN_NAME}/{app_id}/webhooks"
+print_warning "4. Update DNS records if needed to point ${DOMAIN_NAME} to this server"
 
 echo ""
 print_status "Service status:"
