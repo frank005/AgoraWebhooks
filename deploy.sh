@@ -411,6 +411,14 @@ fi
 # Ensure log file exists and has correct permissions
 sudo touch /var/log/agora-webhooks.log
 sudo chown $USER:$USER /var/log/agora-webhooks.log
+sudo chmod 644 /var/log/agora-webhooks.log
+
+# Ensure database directory is writable
+print_status "Ensuring database directory is writable..."
+sudo -u $USER touch $APP_DIR/agora_webhooks.db.test 2>/dev/null && rm -f $APP_DIR/agora_webhooks.db.test || {
+    print_error "❌ Cannot write to $APP_DIR - check permissions"
+    sudo chown -R $USER:$USER $APP_DIR
+}
 
 sudo systemctl daemon-reload
 sudo systemctl enable agora-webhooks
