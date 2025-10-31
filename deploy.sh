@@ -118,13 +118,21 @@ fi
 
 # Create virtual environment
 print_status "Creating Python virtual environment..."
+if [ -d "venv" ]; then
+    print_warning "Virtual environment already exists. Removing it..."
+    rm -rf venv
+fi
 python3.12 -m venv venv
 source venv/bin/activate
 
 # Install Python dependencies
 print_status "Installing Python dependencies..."
 pip install --upgrade pip
-pip install -r requirements.txt
+if ! pip install -r requirements.txt; then
+    print_error "❌ Failed to install Python dependencies"
+    print_error "Check requirements.txt and ensure all packages are available"
+    exit 1
+fi
 
 # Prompt for domain name (needed for .env and nginx config)
 print_status "Please enter your domain name for SSL certificate setup"
@@ -169,6 +177,7 @@ Type=simple
 User=$USER
 WorkingDirectory=$APP_DIR
 Environment=PATH=$APP_DIR/venv/bin
+Environment="PYTHONUNBUFFERED=1"
 ExecStart=$APP_DIR/venv/bin/python main.py
 Restart=always
 RestartSec=10
