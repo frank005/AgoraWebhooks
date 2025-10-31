@@ -15,7 +15,7 @@ from io import StringIO, BytesIO
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 
-from database import WebhookEvent, ChannelSession, ChannelMetrics, UserMetrics
+from database import WebhookEvent, ChannelSession, ChannelMetrics, UserMetrics, RoleEvent
 from models import ExportRequest, ExportResponse
 from mappings import get_platform_name, get_product_name
 
@@ -61,7 +61,8 @@ class ExportService:
             "webhook_events": [],
             "sessions": [],
             "channel_metrics": [],
-            "user_metrics": []
+            "user_metrics": [],
+            "role_events": []
         }
         
         # Build base query filters
@@ -131,10 +132,28 @@ class ExportService:
         else:
             export_data["metrics_count"] = 0
         
+        # Export role events (111/112 role change events)
+        if request.include_webhook_events:  # Include role events when webhook events are included
+            role_events_filters = [
+                RoleEvent.app_id == request.app_id,
+                RoleEvent.created_at >= request.start_date,
+                RoleEvent.created_at < end_date_inclusive
+            ]
+            
+            if request.channel_name:
+                role_events_filters.append(RoleEvent.channel_name == request.channel_name)
+            
+            role_events = self.db.query(RoleEvent).filter(and_(*role_events_filters)).all()
+            export_data["role_events"] = [self._format_role_event(event) for event in role_events]
+            export_data["role_events_count"] = len(role_events)
+        else:
+            export_data["role_events_count"] = 0
+        
         export_data["total_records"] = (
             export_data["webhook_events_count"] + 
             export_data["sessions_count"] + 
-            export_data["metrics_count"]
+            export_data["metrics_count"] +
+            export_data["role_events_count"]
         )
         
         # Generate response based on format
@@ -231,10 +250,33 @@ class ExportService:
             2: "User Left Channel", 
             103: "User Joined Channel (RTC)",
             104: "User Left Channel (RTC)",
-            105: "User Joined Channel (Recording)",
-            106: "User Left Channel (Recording)"
+            101: "Channel Created",
+            102: "Channel Destroyed",
+            103: "Broadcaster Join",
+            104: "Broadcaster Leave",
+            105: "Audience Join",
+            106: "Audience Leave",
+            107: "Communication Join",
+            108: "Communication Leave",
+            111: "Role Change to Broadcaster",
+            112: "Role Change to Audience"
         }
         return event_types.get(event_type, f"Unknown Event ({event_type})")
+    
+    def _format_role_event(self, event: RoleEvent) -> Dict[str, Any]:
+        """Format role event for export"""
+        return {
+            "id": event.id,
+            "app_id": event.app_id,
+            "channel_name": event.channel_name,
+            "channel_session_id": event.channel_session_id,
+            "uid": event.uid,
+            "timestamp": event.ts,
+            "timestamp_utc": datetime.fromtimestamp(event.ts).isoformat() if event.ts else None,
+            "new_role": event.new_role,
+            "new_role_name": "Broadcaster" if event.new_role == 111 else "Audience" if event.new_role == 112 else f"Unknown ({event.new_role})",
+            "created_at": event.created_at.isoformat() if event.created_at else None
+        }
     
     def _generate_json_export(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Generate JSON export"""
@@ -249,13 +291,15 @@ class ExportService:
                 "total_records": data["total_records"],
                 "webhook_events_count": data["webhook_events_count"],
                 "sessions_count": data["sessions_count"],
-                "metrics_count": data["metrics_count"]
+                "metrics_count": data["metrics_count"],
+                "role_events_count": data["role_events_count"]
             },
             "data": {
                 "webhook_events": data["webhook_events"],
                 "sessions": data["sessions"],
                 "channel_metrics": data["channel_metrics"],
-                "user_metrics": data["user_metrics"]
+                "user_metrics": data["user_metrics"],
+                "role_events": data["role_events"]
             }
         }
     
@@ -295,6 +339,14 @@ class ExportService:
             )
             csv_files["user_metrics.csv"] = user_metrics_csv
         
+        # Generate role events CSV
+        if data["role_events"]:
+            role_events_csv = self._create_csv_from_data(
+                data["role_events"], 
+                "role_events"
+            )
+            csv_files["role_events.csv"] = role_events_csv
+        
         # Create zip file
         zip_buffer = BytesIO()
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
@@ -313,7 +365,8 @@ class ExportService:
                 "total_records": data["total_records"],
                 "webhook_events_count": data["webhook_events_count"],
                 "sessions_count": data["sessions_count"],
-                "metrics_count": data["metrics_count"]
+                "metrics_count": data["metrics_count"],
+                "role_events_count": data["role_events_count"]
             },
             "zip_file": zip_buffer.getvalue()
         }

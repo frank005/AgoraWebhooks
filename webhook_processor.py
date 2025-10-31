@@ -5,6 +5,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Dict, Any, Set
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from database import SessionLocal, WebhookEvent, ChannelSession, ChannelMetrics, UserMetrics, RoleEvent
 from models import WebhookRequest
 from mappings import log_unknown_values
@@ -204,6 +205,92 @@ class WebhookProcessor:
                 except Exception as e:
                     logger.debug(f"Error parsing sid from destroy/leave event: {e}")
             
+            # Before creating a new provisional session, check if one already exists
+            # This prevents creating multiple provisional sessions for the same channel
+            # when events arrive after a channel destroy event removed the session from cache
+            # We check for the most recent provisional session that exists before or at this event timestamp
+            existing_provisional = self.db.query(WebhookEvent).filter(
+                WebhookEvent.app_id == app_id,
+                WebhookEvent.channel_name == channel_name,
+                WebhookEvent.channel_session_id.like('%_provisional'),
+                WebhookEvent.ts <= ts  # Only consider sessions before or at this event timestamp
+            ).order_by(WebhookEvent.ts.desc()).first()
+            
+            if existing_provisional and existing_provisional.channel_session_id:
+                # Extract the timestamp from the provisional session ID to check if destroy happened after it
+                # Format: app_id_channel_name_timestamp_provisional
+                provisional_ts = None
+                try:
+                    session_parts = existing_provisional.channel_session_id.split('_')
+                    if len(session_parts) >= 3:
+                        provisional_ts = int(session_parts[-2])  # Second to last part is the timestamp
+                except (ValueError, IndexError):
+                    pass
+                
+                # Check if a channel destroy event happened after the provisional session but before this event
+                if provisional_ts is not None:
+                    destroy_after_provisional = self.db.query(WebhookEvent).filter(
+                        WebhookEvent.app_id == app_id,
+                        WebhookEvent.channel_name == channel_name,
+                        WebhookEvent.event_type == 102,  # Channel destroyed
+                        WebhookEvent.ts > provisional_ts,  # Destroy after provisional session
+                        WebhookEvent.ts < ts  # Destroy before current event (not at same timestamp)
+                    ).first()
+                    
+                    if destroy_after_provisional:
+                        # A destroy event happened between the provisional session and this event
+                        # Don't reuse the old session - fall through to create new one or check ChannelSession
+                        logger.debug(f"Channel destroy event found after provisional session {existing_provisional.channel_session_id}, not reusing")
+                        existing_provisional = None
+                
+                if existing_provisional and existing_provisional.channel_session_id:
+                    # Reuse existing provisional session
+                    call_id = existing_provisional.channel_session_id
+                    self.active_channel_sessions[session_key] = call_id
+                    logger.info(f"Reusing existing provisional channel epoch: {session_key} -> {call_id}")
+                    return call_id
+            
+            # Also check ChannelSession table for provisional sessions
+            # Use the earliest join time to get the original provisional session
+            existing_session = self.db.query(ChannelSession).filter(
+                ChannelSession.app_id == app_id,
+                ChannelSession.channel_name == channel_name,
+                ChannelSession.channel_session_id.like('%_provisional')
+            ).order_by(ChannelSession.join_time.asc()).first()  # Use ASC to get the earliest session
+            
+            if existing_session:
+                # Extract timestamp from session ID to verify no destroy happened after it
+                provisional_ts = None
+                try:
+                    session_parts = existing_session.channel_session_id.split('_')
+                    if len(session_parts) >= 3:
+                        provisional_ts = int(session_parts[-2])  # Second to last part is the timestamp
+                except (ValueError, IndexError):
+                    pass
+                
+                # Check if a channel destroy event happened after the provisional session but before this event
+                if provisional_ts is not None:
+                    destroy_after_provisional = self.db.query(WebhookEvent).filter(
+                        WebhookEvent.app_id == app_id,
+                        WebhookEvent.channel_name == channel_name,
+                        WebhookEvent.event_type == 102,  # Channel destroyed
+                        WebhookEvent.ts > provisional_ts,  # Destroy after provisional session
+                        WebhookEvent.ts < ts  # Destroy before current event (not at same timestamp)
+                    ).first()
+                    
+                    if destroy_after_provisional:
+                        # A destroy event happened between the provisional session and this event
+                        # Don't reuse the old session - fall through to create new one
+                        logger.debug(f"Channel destroy event found after provisional session {existing_session.channel_session_id}, not reusing")
+                        existing_session = None
+                
+                if existing_session:
+                    # Reuse existing provisional session from ChannelSession
+                    call_id = existing_session.channel_session_id
+                    self.active_channel_sessions[session_key] = call_id
+                    logger.info(f"Reusing existing provisional channel epoch from ChannelSession: {session_key} -> {call_id}")
+                    return call_id
+            
             # If no recent session found, create a provisional epoch
             # This handles cases where 101/102 events are missing
             call_id = f"{app_id}_{channel_name}_{ts}_provisional"
@@ -307,6 +394,29 @@ class WebhookProcessor:
                 
                 self.db.commit()
                 logger.info(f"Successfully merged {len(provisional_sessions)} provisional sessions")
+                
+                # Also update RoleEvent records that have provisional session IDs
+                # Find role events with provisional session IDs that match this channel/epoch
+                provisional_role_events = self.db.query(RoleEvent).filter(
+                    RoleEvent.app_id == app_id,
+                    RoleEvent.channel_name == channel_name,
+                    RoleEvent.channel_session_id.like('%_provisional')
+                ).all()
+                
+                # Update role events that belong to this epoch
+                updated_role_events = 0
+                for role_event in provisional_role_events:
+                    # Check if this role event belongs to the merged epoch
+                    # Role events should have timestamp >= create_event_ts and < end_ts
+                    if create_event_ts <= role_event.ts < end_ts:
+                        old_role_session_id = role_event.channel_session_id
+                        role_event.channel_session_id = correct_session_id
+                        updated_role_events += 1
+                        logger.info(f"Merged role event {role_event.id} (UID {role_event.uid}) from {old_role_session_id} to {correct_session_id}")
+                
+                if updated_role_events > 0:
+                    self.db.commit()
+                    logger.info(f"Successfully merged {updated_role_events} provisional role events")
             else:
                 logger.debug(f"No provisional sessions found for epoch {create_event_ts} in channel {channel_name}")
                 
@@ -346,7 +456,13 @@ class WebhookProcessor:
             elif event_type in [111, 112]:  # Role changes
                 await self._handle_role_change(app_id, webhook_data, channel_session_id)
         else:
-            logger.info(f"Skipping user processing for {event_name} - missing uid ({uid}) or clientSeq ({client_seq})")
+            # Log which specific field is missing for better debugging
+            missing_fields = []
+            if uid is None:
+                missing_fields.append("uid")
+            if client_seq is None:
+                missing_fields.append("clientSeq")
+            logger.info(f"Skipping user processing for {event_name} - missing required fields: {', '.join(missing_fields)} (uid: {uid}, clientSeq: {client_seq})")
 
     def get_cache_stats(self) -> Dict[str, Any]:
         """Get cache statistics for debugging"""
@@ -486,8 +602,33 @@ class WebhookProcessor:
             )
             self.db.add(session)
             logger.info(f"Created new session for user {uid} in channel {channel_name} (epoch: {channel_session_id}), Product ID: {webhook_data.productId}, Platform: {webhook_data.payload.platform}, Reason: {webhook_data.payload.reason}, Role: {'Host' if is_host else 'Audience'}")
-        
-        # Update lastClientSeq for this user
+            
+            # Check for role change events that happened at or after the join timestamp
+            # This handles cases where role change (111/112) arrives after join event (105/103)
+            # Role changes should happen AFTER join, so we check for events >= join timestamp
+            # Also check for role events with provisional session IDs (in case they haven't been merged yet)
+            join_ts = webhook_data.payload.ts
+            pending_role_events = self.db.query(RoleEvent).filter(
+                RoleEvent.app_id == app_id,
+                RoleEvent.channel_name == channel_name,
+                RoleEvent.uid == uid,
+                RoleEvent.ts >= join_ts,  # Role change happened at or after join time
+                or_(
+                    RoleEvent.channel_session_id == channel_session_id,
+                    RoleEvent.channel_session_id == f"{channel_session_id}_provisional"
+                )
+            ).order_by(RoleEvent.ts.asc()).all()  # Get earliest first (process in order)
+            
+            if pending_role_events:
+                # Apply role changes that happened after join
+                # For each role change, update the session accordingly
+                for role_event in pending_role_events:
+                    is_host_from_role = role_event.new_role == 111
+                    session.is_host = is_host_from_role
+                    session.role_switches += 1
+                    logger.info(f"Applied role change event {role_event.new_role} to session for user {uid}: is_host={is_host_from_role}, role_switches={session.role_switches}")
+                
+                logger.info(f"Applied {len(pending_role_events)} pending role change(s) to new session for user {uid}: final is_host={session.is_host}, total role_switches={session.role_switches}")
         if existing_session:
             existing_session.last_client_seq = client_seq
             existing_session.updated_at = datetime.utcnow()
@@ -593,6 +734,7 @@ class WebhookProcessor:
         logger.info(f"Stored role event for user {uid}: event_type={event_type} (111=broadcaster, 112=audience)")
         
         # Find the active session for this user and update role information
+        # Try to find session by channel_session_id first, then fall back to any open session
         active_session = self.db.query(ChannelSession).filter(
             ChannelSession.app_id == app_id,
             ChannelSession.channel_name == channel_name,
@@ -600,6 +742,19 @@ class WebhookProcessor:
             ChannelSession.uid == uid,
             ChannelSession.leave_time.is_(None)
         ).first()
+        
+        # If no session found with exact channel_session_id, try to find any open session for this user
+        # This handles cases where role change happens before join event
+        if not active_session:
+            active_session = self.db.query(ChannelSession).filter(
+                ChannelSession.app_id == app_id,
+                ChannelSession.channel_name == channel_name,
+                ChannelSession.uid == uid,
+                ChannelSession.leave_time.is_(None)
+            ).order_by(ChannelSession.join_time.desc()).first()
+            
+            if active_session:
+                logger.info(f"Found session for role change event (matching by channel/uid only): {active_session.channel_session_id}")
         
         if active_session:
             # Update role information
@@ -610,7 +765,9 @@ class WebhookProcessor:
             active_session.updated_at = datetime.utcnow()
             logger.info(f"Updated role for user {uid}: is_host={is_host}, communication_mode={active_session.communication_mode} (preserved), role_switches={active_session.role_switches}")
         else:
-            logger.warning(f"No active session found for role change event for user {uid} in channel {channel_name}")
+            logger.warning(f"No active session found for role change event for user {uid} in channel {channel_name} (session may not exist yet - will be applied when session is created)")
+            # Note: When join event arrives later, it should check for pending role changes
+            # For now, the role event is stored in role_events table and can be applied retroactively
     
     async def _update_metrics(self, app_id: str, webhook_data: WebhookRequest, channel_session_id: str = None):
         """Update aggregated metrics tables"""

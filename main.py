@@ -541,26 +541,41 @@ async def get_channel_details(app_id: str, channel_name: str, session_id: str = 
                 account=session.account
             ))
         
-        # Get ALL sessions for this channel (not filtered by session_id) for metrics calculation
-        all_sessions_query = db.query(ChannelSession).filter(
-            ChannelSession.app_id == app_id,
-            ChannelSession.channel_name == channel_name
-        )
-        all_sessions = all_sessions_query.all()
+        # Calculate metrics based on filtered sessions (if session_id provided, use filtered sessions)
+        # Otherwise use all sessions for the channel
+        if session_id:
+            # Use filtered sessions for metrics when viewing a specific session
+            sessions_for_metrics = sessions
+        else:
+            # Get all sessions for this channel when no session_id specified
+            all_sessions = db.query(ChannelSession).filter(
+                ChannelSession.app_id == app_id,
+                ChannelSession.channel_name == channel_name
+            ).all()
+            sessions_for_metrics = all_sessions
         
-        # Calculate total metrics across ALL sessions
-        total_minutes = sum(s.duration_seconds or 0 for s in all_sessions) / 60.0
-        unique_users = len(set(s.uid for s in all_sessions))
+        # Calculate total metrics from filtered sessions
+        total_minutes = sum(s.duration_seconds or 0 for s in sessions_for_metrics) / 60.0
+        unique_users = len(set(s.uid for s in sessions_for_metrics))
         
-        # Get all role events for this channel (across all sessions)
-        all_role_events = db.query(RoleEvent).filter(
-            RoleEvent.app_id == app_id,
-            RoleEvent.channel_name == channel_name
-        ).all()
+        # Get role events for filtered sessions only (if session_id provided)
+        if session_id:
+            # Filter role events by the specific session_id
+            all_role_events = db.query(RoleEvent).filter(
+                RoleEvent.app_id == app_id,
+                RoleEvent.channel_name == channel_name,
+                RoleEvent.channel_session_id == session_id
+            ).all()
+        else:
+            # Get all role events for this channel (across all sessions)
+            all_role_events = db.query(RoleEvent).filter(
+                RoleEvent.app_id == app_id,
+                RoleEvent.channel_name == channel_name
+            ).all()
         
         # Group sessions by channel_session_id for role calculation
         sessions_by_session_id = {}
-        for s in all_sessions:
+        for s in sessions_for_metrics:
             if s.channel_session_id not in sessions_by_session_id:
                 sessions_by_session_id[s.channel_session_id] = []
             sessions_by_session_id[s.channel_session_id].append(s)
@@ -585,21 +600,21 @@ async def get_channel_details(app_id: str, channel_name: str, session_id: str = 
                     audience_minutes += a_min
         else:
             # Fallback: use session-based calculation
-            host_minutes = sum((s.duration_seconds or 0) for s in all_sessions if s.is_host) / 60.0
+            host_minutes = sum((s.duration_seconds or 0) for s in sessions_for_metrics if s.is_host) / 60.0
             audience_minutes = total_minutes - host_minutes
         
-        unique_hosts = len(set(s.uid for s in all_sessions if s.is_host))
-        unique_audiences = len(set(s.uid for s in all_sessions if not s.is_host))
+        unique_hosts = len(set(s.uid for s in sessions_for_metrics if s.is_host))
+        unique_audiences = len(set(s.uid for s in sessions_for_metrics if not s.is_host))
         
-        # Calculate channel metrics (wall time, user-minutes sum, utilization) across ALL sessions
+        # Calculate channel metrics (wall time, user-minutes sum, utilization) from filtered sessions
         channel_duration_minutes = None
         user_minutes_sum = total_minutes  # Same as total_minutes (sum of all durations)
         utilization = None
         
-        if all_sessions:
-            # Find min join_time and max leave_time across all sessions
-            join_times = [s.join_time for s in all_sessions if s.join_time]
-            leave_times = [s.leave_time for s in all_sessions if s.leave_time and s.leave_time]
+        if sessions_for_metrics:
+            # Find min join_time and max leave_time from filtered sessions
+            join_times = [s.join_time for s in sessions_for_metrics if s.join_time]
+            leave_times = [s.leave_time for s in sessions_for_metrics if s.leave_time and s.leave_time]
             
             if join_times and leave_times:
                 min_join = min(join_times)

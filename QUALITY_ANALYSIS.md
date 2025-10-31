@@ -134,6 +134,26 @@ These indicate positive user experience and normal behavior.
 - **Visualization**: Time-series graph showing concurrent users over the duration of the call
 - **Tooltip**: "Peak number of users connected simultaneously - shows channel capacity and popularity"
 
+### Spike Detection Score
+
+- **Definition**: Ratio of abnormal user events (reason=999) to total sessions
+- **Calculation**: `spike_detection_score = churn_events / total_sessions`
+- **Range**: 0.0 to 1.0 (can exceed 1.0 if user has multiple churn events per session)
+- **Interpretation**:
+  - **0.0**: No abnormal behavior detected (normal user)
+  - **0.0 - 0.2**: Low abnormal behavior (occasional issues)
+  - **0.2 - 0.5**: Moderate abnormal behavior (frequent issues)
+  - **0.5 - 1.0**: High abnormal behavior (very problematic user)
+  - **> 1.0**: Extreme abnormal behavior (user rejoining/leaving multiple times per session)
+- **Purpose**: Identifies users with abnormal connection patterns that may indicate:
+  - Bot behavior
+  - Network instability
+  - Connection problems
+  - Intentional abuse
+- **Usage**: Used in user analytics to flag problematic users for review
+- **Tooltip**: "Score indicating abnormal user behavior patterns (0 = normal, higher = more abnormal)"
+- **Related Metrics**: Directly correlates with `churn_events` count - higher spike score means more reason=999 events
+
 ### Failed Calls
 - **Definition**: Sessions shorter than 5 seconds
 - **Impact**: -5 points per failed call (max -30)
