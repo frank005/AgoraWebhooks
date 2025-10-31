@@ -5,7 +5,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Dict, Any, Set
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, and_
 from database import SessionLocal, WebhookEvent, ChannelSession, ChannelMetrics, UserMetrics, RoleEvent
 from models import WebhookRequest
 from mappings import log_unknown_values
@@ -607,17 +607,79 @@ class WebhookProcessor:
             # This handles cases where role change (111/112) arrives after join event (105/103)
             # Role changes should happen AFTER join, so we check for events >= join timestamp
             # Also check for role events with provisional session IDs (in case they haven't been merged yet)
+            # IMPORTANT: Also check for role events at the same timestamp, even with different channel_session_id
+            # This handles cases where role change arrives before join or gets a different session ID due to timing
+            # CRITICAL: Filter out role events that happened after a channel destroy event (102)
             join_ts = webhook_data.payload.ts
-            pending_role_events = self.db.query(RoleEvent).filter(
+            
+            # Extract timestamp from channel_session_id to find the channel create event
+            # Format: app_id_channel_name_timestamp or app_id_channel_name_timestamp_provisional
+            channel_create_ts = None
+            try:
+                session_parts = channel_session_id.split('_')
+                if len(session_parts) >= 3:
+                    # Remove '_provisional' suffix if present
+                    ts_str = session_parts[-1] if not session_parts[-1] == 'provisional' else session_parts[-2]
+                    channel_create_ts = int(ts_str)
+            except (ValueError, IndexError):
+                pass
+            
+            # Get all candidate role events
+            # Role events must be:
+            # - >= channel create timestamp (if available)
+            # - >= join timestamp (regardless of channel_session_id - handles out-of-order processing)
+            # - Not after channel destroy
+            filter_conditions = [
                 RoleEvent.app_id == app_id,
                 RoleEvent.channel_name == channel_name,
                 RoleEvent.uid == uid,
-                RoleEvent.ts >= join_ts,  # Role change happened at or after join time
-                or_(
-                    RoleEvent.channel_session_id == channel_session_id,
-                    RoleEvent.channel_session_id == f"{channel_session_id}_provisional"
-                )
-            ).order_by(RoleEvent.ts.asc()).all()  # Get earliest first (process in order)
+            ]
+            
+            # Add channel create timestamp filter if available
+            if channel_create_ts:
+                filter_conditions.append(RoleEvent.ts >= channel_create_ts)
+            
+            # Role events must be at or after join timestamp
+            # This handles cases where role change (111) arrives before join (105) in processing order
+            # but has a timestamp >= join timestamp
+            filter_conditions.append(RoleEvent.ts >= join_ts)
+            
+            candidate_role_events = self.db.query(RoleEvent).filter(
+                and_(*filter_conditions)
+            ).order_by(RoleEvent.ts.asc()).all()
+            
+            # Filter out role events that happened after a channel destroy event
+            pending_role_events = []
+            for role_event in candidate_role_events:
+                # Check if there's a channel destroy event (102) between channel_create_ts and role_event.ts
+                # Role events must be >= channel_create_ts and < destroy_ts (if destroy exists)
+                destroy_after_role = None
+                if channel_create_ts:
+                    destroy_after_role = self.db.query(WebhookEvent).filter(
+                        WebhookEvent.app_id == app_id,
+                        WebhookEvent.channel_name == channel_name,
+                        WebhookEvent.event_type == 102,  # Channel destroyed
+                        WebhookEvent.ts > channel_create_ts,  # Destroy after channel create
+                        WebhookEvent.ts <= role_event.ts  # Destroy at or before role event
+                    ).first()
+                else:
+                    # Fallback: check if destroy happened between join and role event
+                    destroy_after_role = self.db.query(WebhookEvent).filter(
+                        WebhookEvent.app_id == app_id,
+                        WebhookEvent.channel_name == channel_name,
+                        WebhookEvent.event_type == 102,  # Channel destroyed
+                        WebhookEvent.ts > join_ts,  # Destroy after join
+                        WebhookEvent.ts <= role_event.ts  # Destroy at or before role event
+                    ).first()
+                
+                # Only include role events that:
+                # - Are >= channel_create_ts (already filtered in query)
+                # - Are >= join_ts (already filtered in query)
+                # - Are < destroy_ts (checking here)
+                if not destroy_after_role:
+                    pending_role_events.append(role_event)
+                else:
+                    logger.info(f"Excluding role event for user {uid} at ts={role_event.ts} because channel destroy happened at ts={destroy_after_role.ts}")
             
             if pending_role_events:
                 # Apply role changes that happened after join

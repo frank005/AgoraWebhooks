@@ -390,18 +390,6 @@ print_status "Starting services..."
 print_status "Ensuring templates directory exists..."
 mkdir -p $APP_DIR/templates
 
-# Test that the application can start
-print_status "Testing application startup..."
-if $APP_DIR/venv/bin/python -c "from database import create_tables; create_tables(); print('Database OK')" 2>&1; then
-    print_status "✅ Database initialization test passed"
-else
-    print_error "❌ Database initialization failed!"
-    print_error "This might prevent the service from starting."
-fi
-
-# Ensure log file exists and has correct permissions
-touch $APP_DIR/agora-webhooks.log 2>/dev/null || true
-
 # Check if database already exists and prompt user
 DB_FILE="$APP_DIR/agora_webhooks.db"
 if [ -f "$DB_FILE" ]; then
@@ -417,6 +405,18 @@ if [ -f "$DB_FILE" ]; then
         print_status "Keeping existing database"
     fi
 fi
+
+# Test that the application can start
+print_status "Testing application startup..."
+if $APP_DIR/venv/bin/python -c "from database import create_tables; create_tables(); print('Database OK')" 2>&1; then
+    print_status "✅ Database initialization test passed"
+else
+    print_error "❌ Database initialization failed!"
+    print_error "This might prevent the service from starting."
+fi
+
+# Ensure log file exists and has correct permissions
+touch $APP_DIR/agora-webhooks.log 2>/dev/null || true
 
 # Ensure database directory is writable
 print_status "Ensuring database directory is writable..."
