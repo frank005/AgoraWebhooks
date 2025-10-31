@@ -41,7 +41,7 @@ rollback() {
         fi
         
         if [ "$APP_DIR_CREATED" = true ]; then
-            print_warning "Application directory /opt/agora-webhooks was created but not removed (may contain data)"
+            print_warning "Application directory $APP_DIR was created but not removed (may contain data)"
         fi
         
         print_error "Rollback complete. Please fix the errors and try again."
@@ -324,7 +324,7 @@ fi
 
 # Create monitoring script
 print_status "Creating monitoring script..."
-sudo tee /opt/agora-webhooks/monitor.sh > /dev/null << 'EOF'
+tee $APP_DIR/monitor.sh > /dev/null << 'EOF'
 #!/bin/bash
 
 # Agora Webhooks Server Monitoring Script
