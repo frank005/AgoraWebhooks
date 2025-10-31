@@ -92,6 +92,11 @@ sudo apt install -y nginx certbot python3-certbot-nginx ufw
 # Create application directory
 APP_DIR="/opt/agora-webhooks"
 print_status "Creating application directory at $APP_DIR..."
+if [ -d "$APP_DIR" ]; then
+    print_warning "Application directory already exists. Cleaning it up..."
+    sudo rm -rf $APP_DIR/*
+    sudo rm -rf $APP_DIR/.* 2>/dev/null || true
+fi
 sudo mkdir -p $APP_DIR
 sudo chown $USER:$USER $APP_DIR
 APP_DIR_CREATED=true
