@@ -7,6 +7,51 @@ set -e
 
 echo "🚀 Starting Agora Webhooks Server deployment..."
 
+# Rollback tracking variables
+ROLLBACK_NEEDED=false
+SERVICE_CREATED=false
+NGINX_CONFIGURED=false
+APP_DIR_CREATED=false
+CRON_ADDED=false
+FIREWALL_CONFIGURED=false
+
+# Rollback function
+rollback() {
+    if [ "$ROLLBACK_NEEDED" = true ]; then
+        print_error "❌ Deployment failed! Rolling back changes..."
+        
+        if [ "$SERVICE_CREATED" = true ]; then
+            print_status "Stopping and removing service..."
+            sudo systemctl stop agora-webhooks 2>/dev/null || true
+            sudo systemctl disable agora-webhooks 2>/dev/null || true
+            sudo rm -f /etc/systemd/system/agora-webhooks.service
+            sudo systemctl daemon-reload
+        fi
+        
+        if [ "$NGINX_CONFIGURED" = true ]; then
+            print_status "Removing nginx configuration..."
+            sudo rm -f /etc/nginx/sites-enabled/agora-webhooks
+            sudo rm -f /etc/nginx/sites-available/agora-webhooks
+            sudo systemctl reload nginx 2>/dev/null || true
+        fi
+        
+        if [ "$CRON_ADDED" = true ]; then
+            print_status "Removing cron job..."
+            crontab -l 2>/dev/null | grep -v "/opt/agora-webhooks/monitor.sh" | crontab - 2>/dev/null || true
+        fi
+        
+        if [ "$APP_DIR_CREATED" = true ]; then
+            print_warning "Application directory /opt/agora-webhooks was created but not removed (may contain data)"
+        fi
+        
+        print_error "Rollback complete. Please fix the errors and try again."
+    fi
+}
+
+# Set trap for error handling
+trap rollback ERR
+trap 'ROLLBACK_NEEDED=true' EXIT
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -49,6 +94,7 @@ APP_DIR="/opt/agora-webhooks"
 print_status "Creating application directory at $APP_DIR..."
 sudo mkdir -p $APP_DIR
 sudo chown $USER:$USER $APP_DIR
+APP_DIR_CREATED=true
 
 # Copy application files
 print_status "Copying application files..."
@@ -123,6 +169,7 @@ StandardError=journal
 [Install]
 WantedBy=multi-user.target
 EOF
+SERVICE_CREATED=true
 
 # Create log directory and set permissions
 print_status "Setting up logging..."
@@ -136,6 +183,13 @@ sudo ufw --force enable
 sudo ufw allow ssh
 sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp
+FIREWALL_CONFIGURED=true
+
+# Warn about port 80 requirement
+print_warning "⚠️  IMPORTANT: Port 80 must be open and accessible from the internet for Let's Encrypt certbot to work"
+print_warning "   - The script configures UFW firewall (port 80 is now allowed)"
+print_warning "   - You MUST also open port 80 in your cloud provider's security group/firewall"
+print_warning "   - Certbot needs port 80 to validate domain ownership"
 
 # Create nginx configuration
 print_status "Creating nginx configuration..."
@@ -181,6 +235,7 @@ EOF
 # Enable nginx site
 sudo ln -sf /etc/nginx/sites-available/agora-webhooks /etc/nginx/sites-enabled/
 sudo rm -f /etc/nginx/sites-enabled/default
+NGINX_CONFIGURED=true
 
 # Test nginx configuration
 sudo nginx -t
@@ -201,14 +256,59 @@ if [ "$RUN_CERTBOT" = "y" ] || [ "$RUN_CERTBOT" = "Y" ]; then
     
     read -p "Press Enter to continue with certbot (or Ctrl+C to cancel)..."
     
-    # Run certbot with nginx plugin
-    if sudo certbot --nginx -d ${DOMAIN_NAME} -d www.${DOMAIN_NAME} --non-interactive --agree-tos --email ${CERTBOT_EMAIL} 2>/dev/null; then
+    # Start nginx if not already running (needed for certbot)
+    if ! systemctl is-active --quiet nginx; then
+        print_status "Starting nginx..."
+        sudo systemctl start nginx
+        sleep 2  # Give nginx time to start
+    fi
+    
+    # Check port 80 accessibility before running certbot
+    print_status "Verifying port 80 is accessible..."
+    
+    # Check if nginx is listening on port 80
+    if ! (sudo netstat -tuln 2>/dev/null | grep -q ':80 ' || sudo ss -tuln 2>/dev/null | grep -q ':80 '); then
+        print_error "❌ Port 80 is not listening!"
+        print_error "   Nginx should be listening on port 80, but it's not."
+        print_error ""
+        print_error "   Please check:"
+        print_error "   1. Port 80 is open in your cloud provider's security group/firewall"
+        print_error "   2. Port 80 is allowed in UFW (should already be configured)"
+        print_error "   3. Check nginx status: sudo systemctl status nginx"
+        print_error "   4. Check nginx logs: sudo journalctl -u nginx -n 50"
+        print_error ""
+        print_error "   After fixing this, you can run certbot manually:"
+        print_error "   sudo certbot --nginx -d ${DOMAIN_NAME}"
+        exit 1
+    fi
+    
+    # Check if UFW allows port 80
+    if ! sudo ufw status | grep -q '80/tcp.*ALLOW'; then
+        print_error "❌ Port 80 is not allowed in UFW firewall!"
+        print_error "   Please run: sudo ufw allow 80/tcp"
+        exit 1
+    fi
+    
+    print_status "✅ Port 80 check passed"
+    print_warning "   Note: Make sure port 80 is also open in your cloud provider's firewall/security group"
+    
+    # Run certbot with nginx plugin (don't suppress errors)
+    print_status "Running certbot..."
+    if sudo certbot --nginx -d ${DOMAIN_NAME} -d www.${DOMAIN_NAME} --non-interactive --agree-tos --email ${CERTBOT_EMAIL}; then
         print_status "✅ SSL certificate obtained successfully"
         # Reload nginx after certbot
         sudo systemctl reload nginx
     else
-        print_warning "⚠️  Certbot setup failed or requires interaction"
-        print_warning "You can run it manually later with: sudo certbot --nginx -d ${DOMAIN_NAME}"
+        print_error "❌ Certbot failed!"
+        print_error "   Common issues:"
+        print_error "   1. Port 80 not accessible from internet (check cloud provider firewall)"
+        print_error "   2. Domain DNS not pointing to this server"
+        print_error "   3. Rate limiting from Let's Encrypt (too many certificate requests)"
+        print_error ""
+        print_error "   You can run certbot manually with:"
+        print_error "   sudo certbot --nginx -d ${DOMAIN_NAME}"
+        # Don't exit here - allow deployment to continue without SSL
+        print_warning "⚠️  Continuing deployment without SSL certificate..."
     fi
 else
     print_warning "Skipping certificate setup. You can run it later with:"
@@ -282,13 +382,18 @@ sudo chmod +x /opt/agora-webhooks/monitor.sh
 # Add cron job for monitoring
 print_status "Setting up monitoring cron job..."
 (crontab -l 2>/dev/null; echo "*/5 * * * * /opt/agora-webhooks/monitor.sh") | crontab -
+CRON_ADDED=true
 
 # Reload systemd and start services
 print_status "Starting services..."
 sudo systemctl daemon-reload
 sudo systemctl enable agora-webhooks
 sudo systemctl start agora-webhooks
-sudo systemctl restart nginx
+sudo systemctl restart nginx || sudo systemctl start nginx
+
+# Disable rollback on success - everything worked!
+ROLLBACK_NEEDED=false
+trap - ERR EXIT
 
 # Check service status
 sleep 5

@@ -89,11 +89,28 @@ The server will start on `http://localhost:8000`
 
 ### 5. Deploy to Production
 
+**Prerequisites:**
+- Ubuntu 24.04 server
+- Sudo access
+- Domain name pointing to your server's IP address
+- **Port 80 must be open** in your cloud provider's firewall/security group (required for Let's Encrypt certbot)
+  - The script configures UFW firewall, but you must also open port 80 in your cloud provider's security group/firewall
+  - Certbot needs port 80 to validate domain ownership
+
 Run the deployment script on your Ubuntu 24.04 server:
 
 ```bash
 ./deploy.sh
 ```
+
+The script will:
+- Install all dependencies (Python, nginx, certbot, etc.)
+- Prompt for your domain name
+- Configure the firewall (ports 22, 80, 443)
+- Set up SSL certificates via Let's Encrypt (optional)
+- Configure and start the service
+
+**Important:** Before running certbot, ensure port 80 is open in your cloud provider's firewall/security group. Certbot needs port 80 to validate domain ownership.
 
 ## ⚙️ Configuration
 
