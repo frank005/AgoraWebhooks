@@ -394,6 +394,24 @@ CRON_ADDED=true
 
 # Reload systemd and start services
 print_status "Starting services..."
+
+# Ensure templates directory exists
+print_status "Ensuring templates directory exists..."
+sudo -u $USER mkdir -p $APP_DIR/templates
+
+# Test that the application can start
+print_status "Testing application startup..."
+if sudo -u $USER $APP_DIR/venv/bin/python -c "from database import create_tables; create_tables(); print('Database OK')" 2>&1; then
+    print_status "✅ Database initialization test passed"
+else
+    print_error "❌ Database initialization failed!"
+    print_error "This might prevent the service from starting."
+fi
+
+# Ensure log file exists and has correct permissions
+sudo touch /var/log/agora-webhooks.log
+sudo chown $USER:$USER /var/log/agora-webhooks.log
+
 sudo systemctl daemon-reload
 sudo systemctl enable agora-webhooks
 sudo systemctl start agora-webhooks
