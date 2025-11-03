@@ -523,7 +523,7 @@ class ExportService:
                 break
             
             # Convert to export format
-            sessions_data = [self._format_channel_session(session) for session in sessions]
+            sessions_data = [self._format_session(session) for session in sessions]
             
             # Create CSV for this chunk
             csv_content = self._create_csv_from_data(sessions_data, "sessions")

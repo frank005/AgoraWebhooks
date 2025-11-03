@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc
+from sqlalchemy import func, desc, and_, or_
 import uvicorn
 
 from config import Config
@@ -265,14 +265,15 @@ import json as json_lib
 
 class UTF8JSONResponse(FastAPIJSONResponse):
     def render(self, content) -> bytes:
-        return json_lib.dumps(
+        json_str = json_lib.dumps(
             content,
             ensure_ascii=False,
             allow_nan=False,
             indent=None,
             separators=(",", ":"),
             default=str
-        ).encode("utf-8")
+        )
+        return json_str.encode("utf-8")
 
 app.default_response_class = UTF8JSONResponse
 
@@ -1301,21 +1302,37 @@ async def export_data(app_id: str, request_body: ExportRequest, http_request: Re
         # Generate export
         export_result = export_service.export_data(request_body)
         
-        logger.info(f"Export completed for app_id {app_id}: {export_result.get('export_info', {}).get('total_records', 0)} records")
+        # Log completion - handle both regular and chunked export formats
+        total_records = export_result.get('export_info', {}).get('total_records', 0) or export_result.get('total_records', 0)
+        logger.info(f"Export completed for app_id {app_id}: {total_records} records")
         
-        # Handle CSV export (zip file)
-        if request_body.format.lower() == "csv" and "zip_file" in export_result:
-            zip_data = export_result["zip_file"]
-            filename = f"agora_export_{app_id}_{request_body.start_date.strftime('%Y%m%d')}_to_{request_body.end_date.strftime('%Y%m%d')}.zip"
-            total_records = export_result.get('export_info', {}).get('total_records', 0)
-            return Response(
-                content=zip_data,
-                media_type="application/zip",
-                headers={
-                    "Content-Disposition": f"attachment; filename={filename}",
-                    "X-Total-Records": str(total_records)
-                }
-            )
+        # Handle CSV export (zip file) - check for both zip_file (regular) and zip_content (chunked)
+        if request_body.format.lower() == "csv":
+            if "zip_file" in export_result:
+                zip_data = export_result["zip_file"]
+                filename = f"agora_export_{app_id}_{request_body.start_date.strftime('%Y%m%d')}_to_{request_body.end_date.strftime('%Y%m%d')}.zip"
+                total_records = export_result.get('export_info', {}).get('total_records', 0)
+                return Response(
+                    content=zip_data,
+                    media_type="application/zip",
+                    headers={
+                        "Content-Disposition": f"attachment; filename={filename}",
+                        "X-Total-Records": str(total_records)
+                    }
+                )
+            elif "zip_content" in export_result:
+                # Handle chunked export
+                zip_data = export_result["zip_content"]
+                filename = export_result.get("filename", f"agora_export_{app_id}_{request_body.start_date.strftime('%Y%m%d')}_to_{request_body.end_date.strftime('%Y%m%d')}.zip")
+                total_records = export_result.get('total_records', 0)
+                return Response(
+                    content=zip_data,
+                    media_type="application/zip",
+                    headers={
+                        "Content-Disposition": f"attachment; filename={filename}",
+                        "X-Total-Records": str(total_records)
+                    }
+                )
         
         # Handle JSON export
         return export_result
@@ -1453,9 +1470,31 @@ async def get_public_share(token: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/api/analytics/minutes/{app_id}", response_model=MinutesAnalyticsResponse)
-async def get_minutes_analytics(app_id: str, request_body: MinutesAnalyticsRequest, db: Session = Depends(get_db)):
+async def get_minutes_analytics(app_id: str, request: Request, db: Session = Depends(get_db)):
     """Get total minutes analytics per day or per month with filters"""
     try:
+        # Get raw request body to handle None values in client_types
+        body = await request.json()
+        
+        # Parse client_types specially to handle None values
+        if 'client_types' in body and body['client_types']:
+            # Convert None/null values in the list
+            client_types_processed = []
+            for ct in body['client_types']:
+                if ct is None:
+                    client_types_processed.append(None)
+                elif isinstance(ct, (int, str)):
+                    try:
+                        client_types_processed.append(int(ct))
+                    except (ValueError, TypeError):
+                        client_types_processed.append(None)
+                else:
+                    client_types_processed.append(ct)
+            body['client_types'] = client_types_processed
+        
+        # Now parse the full request body
+        request_body = MinutesAnalyticsRequest(**body)
+        
         # Set app_id from URL path
         request_body.app_id = app_id
         
@@ -1483,21 +1522,77 @@ async def get_minutes_analytics(app_id: str, request_body: MinutesAnalyticsReque
             query_start_date = request_body.start_date
             query_end_date = request_body.end_date
         
-        # Build query
+        # Build query - include sessions that overlap the date range
+        # A session overlaps if: join_time <= query_end_date AND leave_time >= query_start_date
+        # For sessions without leave_time (incomplete), include if they started before or during query range
+        # (they overlap the query range since they're still active)
         query = db.query(ChannelSession).filter(
             ChannelSession.app_id == app_id,
-            ChannelSession.join_time >= query_start_date,
-            ChannelSession.join_time <= query_end_date,
-            ChannelSession.duration_seconds.isnot(None)
+            ChannelSession.duration_seconds.isnot(None),
+            or_(
+                # Session overlaps the date range (has leave_time and overlaps)
+                and_(
+                    ChannelSession.join_time.isnot(None),
+                    ChannelSession.leave_time.isnot(None),
+                    ChannelSession.join_time <= query_end_date,
+                    ChannelSession.leave_time >= query_start_date
+                ),
+                # Incomplete session overlaps query range (started before or during query range, still active)
+                and_(
+                    ChannelSession.join_time.isnot(None),
+                    ChannelSession.leave_time.is_(None),
+                    ChannelSession.join_time <= query_end_date  # Started before or during query range
+                )
+            )
         )
         
+        # Apply client type filter first to determine if we need to adjust platform filter
+        # Handle None/null values specially - filter for NULL client_type (only for Linux platform)
+        needs_linux_for_none = False
+        if request_body.client_types and len(request_body.client_types) > 0:
+            # Separate None/null values from regular client types
+            none_values = [ct for ct in request_body.client_types if ct is None]
+            needs_linux_for_none = len(none_values) > 0
+        
         # Apply platform filter (multi-select)
+        # If None client type is selected, ensure Linux (platform 6) is included
+        platform_filter_list = None
         if request_body.platforms and len(request_body.platforms) > 0:
-            query = query.filter(ChannelSession.platform.in_(request_body.platforms))
+            platform_filter_list = request_body.platforms.copy()
+            if needs_linux_for_none and 6 not in platform_filter_list:
+                # Add Linux (platform 6) if None client type is selected but Linux wasn't explicitly selected
+                platform_filter_list.append(6)
+        elif needs_linux_for_none:
+            # If no platforms selected but None client type is selected, only show Linux
+            platform_filter_list = [6]
+        
+        if platform_filter_list:
+            query = query.filter(ChannelSession.platform.in_(platform_filter_list))
         
         # Apply client type filter (multi-select)
         if request_body.client_types and len(request_body.client_types) > 0:
-            query = query.filter(ChannelSession.client_type.in_(request_body.client_types))
+            # Separate None/null values from regular client types
+            none_values = [ct for ct in request_body.client_types if ct is None]
+            regular_values = [ct for ct in request_body.client_types if ct is not None]
+            
+            logger.info(f"Client type filter: none_values={none_values}, regular_values={regular_values}, "
+                       f"platform_filter_list={platform_filter_list}")
+            
+            filter_conditions = []
+            if none_values:
+                # Add condition for NULL client_type - only for Linux (platform 6)
+                filter_conditions.append(
+                    and_(
+                        ChannelSession.client_type.is_(None),
+                        ChannelSession.platform == 6  # Only Linux
+                    )
+                )
+            if regular_values:
+                # Add condition for specific client types
+                filter_conditions.append(ChannelSession.client_type.in_(regular_values))
+            
+            if filter_conditions:
+                query = query.filter(or_(*filter_conditions))
         
         # Apply role filter (multi-select)
         if request_body.role and len(request_body.role) > 0:
@@ -1508,10 +1603,26 @@ async def get_minutes_analytics(app_id: str, request_body: MinutesAnalyticsReque
             if "audience" in request_body.role:
                 role_filters.append(ChannelSession.is_host == False)
             if role_filters:
-                from sqlalchemy import or_
                 query = query.filter(or_(*role_filters))
         
         sessions = query.all()
+        
+        # Debug logging for None client type sessions
+        none_sessions = [s for s in sessions if s.client_type is None]
+        logger.info(f"Minutes analytics query: Found {len(sessions)} total sessions, {len(none_sessions)} with None client_type")
+        if none_sessions:
+            sample_dates = {}
+            for s in none_sessions[:50]:  # Increased sample size
+                date_key = s.join_time.date().strftime("%Y-%m-%d")
+                if date_key not in sample_dates:
+                    sample_dates[date_key] = {'host': 0, 'audience': 0, 'total_minutes': 0.0, 'count': 0}
+                sample_dates[date_key]['count'] += 1
+                sample_dates[date_key]['total_minutes'] += (s.duration_seconds or 0) / 60.0
+                if s.is_host:
+                    sample_dates[date_key]['host'] += 1
+                else:
+                    sample_dates[date_key]['audience'] += 1
+            logger.info(f"None client_type sessions breakdown by date: {sample_dates}")
         
         # Aggregate by period and breakdown dimension
         period_format = "%Y-%m-%d" if request_body.period == "day" else "%Y-%m"
@@ -1527,29 +1638,167 @@ async def get_minutes_analytics(app_id: str, request_body: MinutesAnalyticsReque
         for session in sessions:
             # Get client type
             client_type = session.client_type
+            platform = session.platform
             
             # Determine series key based on breakdown_by
             if request_body.breakdown_by == "platform":
                 # Group by platform + client_type
-                platform = session.platform
                 series_key = (platform, client_type)
             else:
                 # Default: group by role + client_type
+                # This includes None/empty client_type as a separate category
                 role = "host" if session.is_host else "audience"
                 series_key = (role, client_type)
-            
-            # Get date key
-            session_date = session.join_time.date()
-            date_key = session_date.strftime(period_format)
             
             # Initialize series if needed
             if series_key not in series_data:
                 series_data[series_key] = {}
             
-            # Add minutes to this series/date
-            if date_key not in series_data[series_key]:
-                series_data[series_key][date_key] = 0.0
-            series_data[series_key][date_key] += (session.duration_seconds or 0) / 60.0
+            # Split session duration across days if it spans multiple days
+            if session.join_time and session.leave_time and session.duration_seconds:
+                join_date = session.join_time.date()
+                leave_date = session.leave_time.date()
+                
+                # Only count days that fall within the query date range
+                query_start_date_only = query_start_date.date()
+                query_end_date_only = query_end_date.date()
+                
+                if join_date == leave_date:
+                    # Session is entirely within one day
+                    # Only count if this day overlaps the query range
+                    if query_start_date_only <= join_date <= query_end_date_only:
+                        # Check if session actually overlaps query time range
+                        # For single-day sessions, check if session overlaps query datetime range
+                        session_start = session.join_time
+                        session_end = session.leave_time
+                        
+                        # Normalize timezones for comparison
+                        # If query dates are naive, make them aware; if session times are naive, make them aware
+                        if query_start_date.tzinfo is None and session_start.tzinfo is not None:
+                            # Query dates are naive, session is aware - make query dates aware (UTC)
+                            from datetime import timezone
+                            query_start_normalized = query_start_date.replace(tzinfo=timezone.utc)
+                            query_end_normalized = query_end_date.replace(tzinfo=timezone.utc)
+                        elif query_start_date.tzinfo is not None and session_start.tzinfo is None:
+                            # Query dates are aware, session is naive - make session aware (UTC)
+                            from datetime import timezone
+                            session_start = session_start.replace(tzinfo=timezone.utc)
+                            session_end = session_end.replace(tzinfo=timezone.utc)
+                            query_start_normalized = query_start_date
+                            query_end_normalized = query_end_date
+                        else:
+                            # Both are same type (both naive or both aware)
+                            query_start_normalized = query_start_date
+                            query_end_normalized = query_end_date
+                        
+                        # Session overlaps if it starts before query ends and ends after query starts
+                        if session_start <= query_end_normalized and session_end >= query_start_normalized:
+                            date_key = join_date.strftime(period_format)
+                            if date_key not in series_data[series_key]:
+                                series_data[series_key][date_key] = 0.0
+                            series_data[series_key][date_key] += (session.duration_seconds or 0) / 60.0
+                else:
+                    # Session spans multiple days - split duration proportionally
+                    join_datetime = session.join_time
+                    leave_datetime = session.leave_time
+                    total_duration_seconds = session.duration_seconds
+                    
+                    # Calculate minutes for each day, but only count days within query range
+                    current_date = join_date
+                    while current_date <= leave_date:
+                        # Skip days outside the query range
+                        if current_date < query_start_date_only or current_date > query_end_date_only:
+                            current_date += timedelta(days=1)
+                            continue
+                        
+                        # Calculate the start and end of this day (00:00:00 to 23:59:59.999999)
+                        from datetime import time as dt_time
+                        day_start = datetime.combine(current_date, dt_time(0, 0, 0))
+                        day_end = datetime.combine(current_date, dt_time(23, 59, 59, 999999))
+                        
+                        # Normalize timezones - ensure day_start/day_end match join_datetime timezone
+                        if join_datetime.tzinfo:
+                            day_start = day_start.replace(tzinfo=join_datetime.tzinfo)
+                            day_end = day_end.replace(tzinfo=join_datetime.tzinfo)
+                        elif day_start.tzinfo is None:
+                            # Both are naive, ensure they stay naive
+                            pass
+                        
+                        # Determine the actual session time range for this day
+                        # Use the intersection of session time and day boundaries
+                        # Don't clamp to query boundaries here - we've already filtered days
+                        session_start = max(join_datetime, day_start)
+                        session_end = min(leave_datetime, day_end)
+                        
+                        # Calculate duration in this day
+                        if session_start < session_end:
+                            day_duration_seconds = (session_end - session_start).total_seconds()
+                            day_minutes = day_duration_seconds / 60.0
+                            
+                            date_key = current_date.strftime(period_format)
+                            if date_key not in series_data[series_key]:
+                                series_data[series_key][date_key] = 0.0
+                            series_data[series_key][date_key] += day_minutes
+                        
+                        # Move to next day
+                        current_date += timedelta(days=1)
+            else:
+                # Handle incomplete sessions (no leave_time) - split across days like multi-day sessions
+                if session.join_time:
+                    join_date = session.join_time.date()
+                    join_datetime = session.join_time
+                    
+                    # Only count days that fall within the query date range
+                    query_start_date_only = query_start_date.date()
+                    query_end_date_only = query_end_date.date()
+                    
+                    # For incomplete sessions, use query_end_date as the effective end time
+                    # (session is still active, so count up to end of query range or end of day)
+                    effective_end_datetime = query_end_date
+                    if join_datetime.tzinfo and query_end_date.tzinfo is None:
+                        from datetime import timezone
+                        effective_end_datetime = query_end_date.replace(tzinfo=timezone.utc)
+                    elif join_datetime.tzinfo is None and query_end_date.tzinfo:
+                        effective_end_datetime = query_end_date.replace(tzinfo=None)
+                    
+                    # Calculate minutes for each day from join_date to query_end_date
+                    current_date = join_date
+                    while current_date <= query_end_date_only:
+                        # Skip days outside the query range
+                        if current_date < query_start_date_only or current_date > query_end_date_only:
+                            current_date += timedelta(days=1)
+                            continue
+                        
+                        # Calculate the start and end of this day
+                        from datetime import time as dt_time
+                        day_start = datetime.combine(current_date, dt_time(0, 0, 0))
+                        day_end = datetime.combine(current_date, dt_time(23, 59, 59, 999999))
+                        
+                        # Normalize timezones
+                        if join_datetime.tzinfo:
+                            day_start = day_start.replace(tzinfo=join_datetime.tzinfo)
+                            day_end = day_end.replace(tzinfo=join_datetime.tzinfo)
+                        
+                        # Determine the actual session time range for this day
+                        # For incomplete sessions, use join_time to min(day_end, effective_end_datetime)
+                        session_start = max(join_datetime, day_start)
+                        session_end = min(effective_end_datetime, day_end)
+                        
+                        # Calculate duration in this day
+                        if session_start < session_end:
+                            day_duration_seconds = (session_end - session_start).total_seconds()
+                            day_minutes = day_duration_seconds / 60.0
+                            
+                            date_key = current_date.strftime(period_format)
+                            if date_key not in series_data[series_key]:
+                                series_data[series_key][date_key] = 0.0
+                            series_data[series_key][date_key] += day_minutes
+                        
+                        # Move to next day
+                        current_date += timedelta(days=1)
+                else:
+                    # No join_time either - skip this session
+                    pass
         
         # Generate all date keys for the period
         all_date_keys = []
@@ -1594,10 +1843,10 @@ async def get_minutes_analytics(app_id: str, request_body: MinutesAnalyticsReque
             key = item[0]
             if request_body.breakdown_by == "platform":
                 platform, client_type = key
-                return (platform or 0, client_type or 0)
+                return (platform or 0, client_type if client_type is not None else -1)  # Use -1 for None to sort separately from 0
             else:
                 role, client_type = key
-                return (role, client_type or 0)
+                return (role, client_type if client_type is not None else -1)  # Use -1 for None to sort separately from 0
         
         sorted_series = sorted(series_data.items(), key=sort_key)
         
@@ -1607,26 +1856,33 @@ async def get_minutes_analytics(app_id: str, request_body: MinutesAnalyticsReque
             if request_body.breakdown_by == "platform":
                 platform, client_type = series_key
                 platform_name = get_platform_name(platform) if platform else None
-                client_type_name = get_client_type_name(client_type) if client_type else None
-                
-                if platform_name and client_type_name:
-                    label = f"{platform_name} - {client_type_name}"
-                elif platform_name:
-                    label = platform_name
-                elif client_type_name:
-                    label = f"Unknown Platform - {client_type_name}"
+                # Check if client_type is None (not just falsy - 0 is valid!)
+                if client_type is not None:
+                    client_type_name = get_client_type_name(client_type)
+                    if platform_name and client_type_name:
+                        label = f"{platform_name} - {client_type_name}"
+                    elif platform_name:
+                        label = platform_name
+                    elif client_type_name:
+                        label = f"Unknown Platform - {client_type_name}"
+                    else:
+                        label = "Unknown"
                 else:
-                    label = "Unknown"
+                    # Client type is None
+                    if platform_name:
+                        label = f"{platform_name} - None"
+                    else:
+                        label = "Unknown Platform - None"
             else:
                 # Default: role + client_type
                 role, client_type = series_key
                 role_label = role.capitalize()
-                client_type_name = get_client_type_name(client_type) if client_type else None
-                
-                if client_type_name:
+                # Check if client_type is None (not just falsy - 0 is valid!)
+                if client_type is not None:
+                    client_type_name = get_client_type_name(client_type)
                     label = f"{role_label} - {client_type_name}"
                 else:
-                    label = role_label
+                    label = f"{role_label} - None"
             
             # Build data points for this series
             data_points = []
@@ -1637,6 +1893,18 @@ async def get_minutes_analytics(app_id: str, request_body: MinutesAnalyticsReque
             
             # Calculate total for this series
             series_total = sum(data_points)
+            
+            # Debug logging for None client type series
+            if request_body.breakdown_by == "platform":
+                platform, client_type = series_key
+                if client_type is None:
+                    logger.info(f"Series with None client_type (platform breakdown): key={series_key}, label={label}, total={series_total}, "
+                              f"sample_dates={[(all_date_keys[i]['date'], dp) for i, dp in enumerate(data_points) if dp > 0][:5]}")
+            else:
+                role, client_type = series_key
+                if client_type is None:
+                    logger.info(f"Series with None client_type (role breakdown): key={series_key}, label={label}, total={series_total}, "
+                              f"sample_dates={[(all_date_keys[i]['date'], dp) for i, dp in enumerate(data_points) if dp > 0][:5]}")
             
             # Only include series with data
             if series_total > 0:
@@ -1653,12 +1921,12 @@ async def get_minutes_analytics(app_id: str, request_body: MinutesAnalyticsReque
                     series_info["platform"] = platform
                     series_info["platform_name"] = get_platform_name(platform) if platform else None
                     series_info["client_type"] = client_type
-                    series_info["client_type_name"] = get_client_type_name(client_type) if client_type else None
+                    series_info["client_type_name"] = get_client_type_name(client_type) if client_type is not None else None
                 else:
                     role, client_type = series_key
                     series_info["role"] = role
                     series_info["client_type"] = client_type
-                    series_info["client_type_name"] = get_client_type_name(client_type) if client_type else None
+                    series_info["client_type_name"] = get_client_type_name(client_type) if client_type is not None else None
                 
                 series_list.append(series_info)
                 series_index += 1

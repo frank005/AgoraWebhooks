@@ -9,6 +9,7 @@
     <meta http-equiv="Expires" content="0">
     <meta name="version" content="2025-01-28-v5">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -155,6 +156,9 @@
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             transition: transform 0.2s ease;
             cursor: pointer;
+            max-width: 100%;
+            overflow: hidden;
+            position: relative;
         }
         
         .channel-card:hover {
@@ -166,6 +170,27 @@
             font-weight: 600;
             margin-bottom: 10px;
             color: #333;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 100%;
+            position: relative;
+        }
+        
+        .channel-name:hover::after {
+            content: attr(data-full-name);
+            position: absolute;
+            left: 0;
+            top: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            white-space: nowrap;
+            z-index: 1000;
+            font-size: 0.9rem;
+            margin-top: 5px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
         }
         
         .channel-stats {
@@ -632,16 +657,23 @@
         
         <div class="search-section" id="minutes-viewer-section" style="display: none;">
             <h3 style="margin-bottom: 10px; color: #333;">Minutes Analytics Viewer</h3>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 10px;">
+            <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; margin-bottom: 10px;">
                 <div class="form-group" style="margin-bottom: 5px;">
                     <label for="minutesAppId" style="font-size: 0.9rem; margin-bottom: 2px;">App ID</label>
-                    <input type="text" id="minutesAppId" placeholder="Enter your Agora App ID" style="padding: 5px 8px; font-size: 0.9rem;" />
+                    <input type="text" id="minutesAppId" placeholder="Enter your Agora App ID" style="padding: 5px 8px; font-size: 0.9rem; width: 100%;" />
                 </div>
                 <div class="form-group" style="margin-bottom: 5px;">
                     <label for="minutesPeriod" style="font-size: 0.9rem; margin-bottom: 2px;">Period</label>
-                    <select id="minutesPeriod" style="padding: 5px 8px; font-size: 0.9rem;">
+                    <select id="minutesPeriod" style="padding: 5px 8px; font-size: 0.9rem; width: auto; min-width: 100px;">
                         <option value="day">Daily</option>
                         <option value="month">Monthly</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom: 5px;">
+                    <label for="minutesTimezone" style="font-size: 0.9rem; margin-bottom: 2px;">Timezone</label>
+                    <select id="minutesTimezone" style="padding: 5px 8px; font-size: 0.9rem; width: auto; min-width: 150px;">
+                        <option value="UTC">UTC</option>
+                        <option value="local">Local Browser Time</option>
                     </select>
                 </div>
             </div>
@@ -687,7 +719,7 @@
             <div style="margin-bottom: 10px;">
                 <div class="form-group" style="margin-bottom: 5px;">
                     <label for="minutesBreakdownBy" style="font-size: 0.9rem; margin-bottom: 2px;">Breakdown By</label>
-                    <select id="minutesBreakdownBy" style="padding: 5px 8px; font-size: 0.9rem; width: 100%;">
+                    <select id="minutesBreakdownBy" style="padding: 5px 8px; font-size: 0.9rem; width: auto; min-width: 180px;">
                         <option value="role">Role (Host/Audience)</option>
                         <option value="platform">Platform</option>
                     </select>
@@ -873,7 +905,7 @@
                     
                     return `
                     <div class="channel-card" onclick="loadChannelDetails('${channel.channel_name}', '${channel.channel_session_id || ''}')">
-                        <div class="channel-name">${channel.display_name}</div>
+                        <div class="channel-name" data-full-name="${channel.display_name}" title="${channel.display_name}">${channel.display_name}</div>
                         <div class="channel-stats">
                             <div class="stat">
                                 <div class="stat-value">${channel.total_minutes.toFixed(1)}</div>
@@ -2671,9 +2703,31 @@
                 // Sort by ID
                 clientTypesToShow.sort((a, b) => a.id - b.id);
                 
+                // Only add "None" option if Linux (platform 6) is selected
+                const selectedPlatforms = Array.from(document.querySelectorAll('.platform-checkbox:checked')).map(cb => parseInt(cb.value));
+                const linuxSelected = selectedPlatforms.includes(6);
+                
+                if (linuxSelected) {
+                    // Add "None" option for Linux NULL client_type
+                    const noneLabel = document.createElement('label');
+                    noneLabel.style.cssText = 'display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 0.85rem;';
+                    
+                    const noneCheckbox = document.createElement('input');
+                    noneCheckbox.type = 'checkbox';
+                    noneCheckbox.className = 'client-type-checkbox';
+                    noneCheckbox.value = 'null';
+                    noneCheckbox.setAttribute('data-is-none', 'true');
+                    
+                    noneLabel.appendChild(noneCheckbox);
+                    noneLabel.appendChild(document.createTextNode('None'));
+                    container.appendChild(noneLabel);
+                }
+                
                 // Add checkboxes for each client type
                 if (clientTypesToShow.length === 0) {
-                    container.innerHTML = '<small style="color: #666; font-size: 0.75rem;">No client types available for selected platforms</small>';
+                    if (!linuxSelected) {
+                        container.innerHTML = '<small style="color: #666; font-size: 0.75rem;">No client types available for selected platforms</small>';
+                    }
                 } else {
                     clientTypesToShow.forEach(ct => {
                         const label = document.createElement('label');
@@ -2720,8 +2774,14 @@
             // Get selected platforms
             const selectedPlatforms = Array.from(document.querySelectorAll('.platform-checkbox:checked')).map(cb => parseInt(cb.value));
             
-            // Get selected client types
-            const selectedClientTypes = Array.from(document.querySelectorAll('.client-type-checkbox:checked')).map(cb => parseInt(cb.value));
+            // Get selected client types - handle "null" specially
+            const selectedClientTypes = Array.from(document.querySelectorAll('.client-type-checkbox:checked')).map(cb => {
+                const value = cb.value;
+                if (value === 'null' || cb.getAttribute('data-is-none') === 'true') {
+                    return null; // Send null for None client type
+                }
+                return parseInt(value);
+            });
             
             // Get selected roles
             const selectedRoles = Array.from(document.querySelectorAll('.role-checkbox:checked')).map(cb => cb.value);
@@ -2729,6 +2789,12 @@
             // Get breakdown dimension (with fallback to default)
             const breakdownBySelect = document.getElementById('minutesBreakdownBy');
             const breakdownBy = breakdownBySelect ? breakdownBySelect.value : 'role';
+            
+            // Save timezone preference
+            const timezoneSelect = document.getElementById('minutesTimezone');
+            if (timezoneSelect) {
+                localStorage.setItem('minutesTimezone', timezoneSelect.value);
+            }
             
             if (!startDate || !endDate) {
                 showError('Please select both start and end dates');
@@ -2749,9 +2815,15 @@
                     breakdown_by: breakdownBy
                 };
                 
-                // Remove null values
+                // Remove null/empty values, but keep arrays that contain null values
                 Object.keys(requestBody).forEach(key => {
-                    if (requestBody[key] === null || requestBody[key] === undefined || requestBody[key] === '') {
+                    const value = requestBody[key];
+                    // Don't remove client_types if it's an array (even if it contains null)
+                    if (key === 'client_types' && Array.isArray(value) && value.length > 0) {
+                        return; // Keep the array
+                    }
+                    // Remove null/undefined/empty values for other fields
+                    if (value === null || value === undefined || value === '') {
                         delete requestBody[key];
                     }
                 });
@@ -2806,7 +2878,33 @@
                 warningDiv.style.display = 'none';
             }
             
-            const labels = data.data_points.map(dp => dp.display_date);
+            // Get timezone preference (default to UTC)
+            const timezone = document.getElementById('minutesTimezone').value || localStorage.getItem('minutesTimezone') || 'UTC';
+            
+            // Convert dates based on selected timezone
+            const labels = data.data_points.map(dp => {
+                if (timezone === 'UTC') {
+                    return dp.display_date; // Use UTC display as-is
+                } else {
+                    // Convert UTC date to local timezone
+                    // Parse the date string (format: "YYYY-MM-DD" or "YYYY-MM")
+                    const dateStr = dp.date;
+                    let date;
+                    if (data.period === 'day') {
+                        // For daily: date is "YYYY-MM-DD", treat as UTC midnight
+                        date = new Date(dateStr + 'T00:00:00Z');
+                    } else {
+                        // For monthly: date is "YYYY-MM", treat as first day of month UTC
+                        date = new Date(dateStr + '-01T00:00:00Z');
+                    }
+                    // Format in local timezone
+                    if (data.period === 'day') {
+                        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                    } else {
+                        return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                    }
+                }
+            });
             
             // Build datasets from series
             const datasets = data.series.map(series => ({
@@ -2862,7 +2960,7 @@
                     plugins: {
                         title: {
                             display: true,
-                            text: `Minutes Usage Over Time (${data.period === 'day' ? 'Daily' : 'Monthly'}) - ${data.series.length} Series`,
+                            text: `Minutes Usage Over Time (${data.period === 'day' ? 'Daily' : 'Monthly'}) - ${data.series.length} Series${timezone === 'UTC' ? ' (UTC)' : ' (Local Time)'}`,
                             font: {
                                 size: 16,
                                 weight: 'bold'
@@ -2871,9 +2969,37 @@
                         legend: legendConfig,
                         tooltip: {
                             callbacks: {
+                                title: function(context) {
+                                    return `Date: ${context[0].label}`;
+                                },
                                 label: function(context) {
                                     return `${context.dataset.label}: ${context.parsed.y.toFixed(2)} minutes`;
                                 }
+                            }
+                        },
+                        zoom: {
+                            zoom: {
+                                drag: {
+                                    enabled: true,
+                                    modifierKey: null,
+                                    threshold: 0
+                                },
+                                wheel: {
+                                    enabled: true,
+                                    modifierKey: 'ctrl'
+                                },
+                                pinch: {
+                                    enabled: true
+                                },
+                                mode: 'x',
+                                onZoomComplete: function({chart}) {
+                                    // Optional: You can add logic here after zoom completes
+                                }
+                            },
+                            pan: {
+                                enabled: true,
+                                mode: 'x',
+                                modifierKey: 'shift'
                             }
                         }
                     },
@@ -2908,9 +3034,24 @@
             
             let summaryHTML = `<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">`;
             
+            // Get timezone preference (default to UTC)
+            const timezone = document.getElementById('minutesTimezone').value || localStorage.getItem('minutesTimezone') || 'UTC';
+            
+            // Format date range based on timezone
+            let dateRangeStr;
+            if (timezone === 'UTC') {
+                // For UTC, parse the ISO string and format as UTC
+                const startDate = new Date(data.start_date);
+                const endDate = new Date(data.end_date);
+                dateRangeStr = `${startDate.toISOString().split('T')[0]} - ${endDate.toISOString().split('T')[0]} (UTC)`;
+            } else {
+                // For local time, use toLocaleDateString
+                dateRangeStr = `${new Date(data.start_date).toLocaleDateString()} - ${new Date(data.end_date).toLocaleDateString()} (Local)`;
+            }
+            
             summaryHTML += `<div><strong>Total Minutes:</strong><br><span style="font-size: 1.5rem; color: #667eea;">${data.total_minutes.toFixed(2)}</span></div>`;
             summaryHTML += `<div><strong>Period:</strong><br>${data.period === 'day' ? 'Daily' : 'Monthly'}</div>`;
-            summaryHTML += `<div><strong>Date Range:</strong><br>${new Date(data.start_date).toLocaleDateString()} - ${new Date(data.end_date).toLocaleDateString()}</div>`;
+            summaryHTML += `<div><strong>Date Range:</strong><br>${dateRangeStr}</div>`;
             summaryHTML += `<div><strong>Series:</strong><br>${data.series.length} breakdown lines</div>`;
             
             // Add filter info

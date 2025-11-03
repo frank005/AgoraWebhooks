@@ -699,8 +699,8 @@ class WebhookProcessor:
                 # 103/104: Broadcaster (is_host=True, communication_mode=0)
                 # 105/106: Audience (is_host=False, communication_mode=0)  
                 # 107/108: Communication (is_host=True, communication_mode=1)
-                is_host = event_type in [103, 107]  # Broadcaster leave OR Communication leave
-                communication_mode = 1 if event_type in [107] else 0  # Only communication leave
+                is_host = event_type in [104, 108]  # Broadcaster leave OR Communication leave
+                communication_mode = 1 if event_type == 108 else 0  # Only communication leave (108)
                 
                 session = ChannelSession(
                     app_id=app_id,

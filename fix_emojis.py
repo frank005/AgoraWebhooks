@@ -63,6 +63,43 @@ def fix_all_emojis():
         if matches > 0:
             py_fixed_count += matches
     
+    # Additional direct string replacements for quality insights (more reliable than regex)
+    # These handle cases where emojis might be partially broken or encoded differently
+    direct_fixes = [
+        ('quality_insights.append(f"?? User', 'quality_insights.append(f"🔴 User'),
+        ('quality_insights.append(f"?? {other_issues}', 'quality_insights.append(f"🔴 {other_issues}'),
+        ('quality_insights.append(f"?? {network_timeouts}', 'quality_insights.append(f"🟡 {network_timeouts}'),
+        ('quality_insights.append(f"?? {network_issues}', 'quality_insights.append(f"🟡 {network_issues}'),
+        ('quality_insights.append(f"?? {ip_switching}', 'quality_insights.append(f"🟡 {ip_switching}'),
+        ('quality_insights.append(f"?? {server_issues}', 'quality_insights.append(f"🟡 {server_issues}'),
+        ('quality_insights.append(f"?? {permission_issues}', 'quality_insights.append(f"🟢 {permission_issues}'),
+        ('quality_insights.append(f"?? {device_switches}', 'quality_insights.append(f"🟢 {device_switches}'),
+        ('quality_insights.append(f"? {good_exits}', 'quality_insights.append(f"✅ {good_exits}'),
+        ('quality_insights.append(f"?? {failed_calls}', 'quality_insights.append(f"📞 {failed_calls}'),
+        ('quality_insights.append(f"?? High role switching', 'quality_insights.append(f"🔄 High role switching'),
+        ('quality_insights.append(f"?? Short average session length', 'quality_insights.append(f"⏱️ Short average session length'),
+        ('insights.append(f"?? {churn_events}', 'insights.append(f"🔴 {churn_events}'),
+        ('insights.append(f"?? {other_issues}', 'insights.append(f"🔴 {other_issues}'),
+        ('insights.append(f"?? {network_timeouts}', 'insights.append(f"🟡 {network_timeouts}'),
+        ('insights.append(f"?? {network_issues}', 'insights.append(f"🟡 {network_issues}'),
+        ('insights.append(f"?? {ip_switching}', 'insights.append(f"🟡 {ip_switching}'),
+        ('insights.append(f"?? {server_issues}', 'insights.append(f"🟡 {server_issues}'),
+        ('insights.append(f"?? {permission_issues}', 'insights.append(f"🟢 {permission_issues}'),
+        ('insights.append(f"?? {device_switches}', 'insights.append(f"🟢 {device_switches}'),
+        ('insights.append(f"? {good_exits}', 'insights.append(f"✅ {good_exits}'),
+        ('insights.append(f"?? {failed_calls}', 'insights.append(f"📞 {failed_calls}'),
+        ('insights.append("?? Test channel', 'insights.append("🧪 Test channel'),
+        ('insights.append(f"?? Short average session length', 'insights.append(f"⏱️ Short average session length'),
+        ('insights.append("?? Poor quality', 'insights.append("🔴 Poor quality'),
+        ('insights.append("?? Moderate quality', 'insights.append("🟡 Moderate quality'),
+        ('insights.append("?? Good quality', 'insights.append("🟢 Good quality'),
+    ]
+    
+    for old, new in direct_fixes:
+        if old in py_content:
+            py_content = py_content.replace(old, new)
+            py_fixed_count += py_content.count(new) - py_content.count(old) if new in py_content else 1
+    
     with open('main.py', 'w', encoding='utf-8') as f:
         f.write(py_content)
     

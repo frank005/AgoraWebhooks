@@ -187,9 +187,34 @@ class MinutesAnalyticsRequest(BaseModel):
     end_date: Optional[datetime] = None
     period: str = "day"  # "day" or "month"
     platforms: Optional[List[int]] = None  # List of platform IDs (1=Android, 2=iOS, 5=Windows, 6=Linux, 7=Web, 8=macOS)
-    client_types: Optional[List[int]] = None  # List of client types
+    client_types: Optional[List[Union[int, None]]] = None  # List of client types (can include None for NULL client_type)
     role: Optional[List[str]] = None  # List of roles: ["host"], ["audience"], or ["host", "audience"], or None for all
     breakdown_by: str = "role"  # "role" or "platform" - determines grouping dimension
+    
+    @field_validator('client_types', mode='before')
+    @classmethod
+    def parse_client_types(cls, v):
+        """Parse client_types array, handling null values"""
+        if v is None:
+            return None
+        if isinstance(v, list):
+            # Convert string "null" to None, keep None as None, convert numbers to int
+            # Return as list that can contain None values
+            result = []
+            for item in v:
+                if item is None:
+                    result.append(None)
+                elif isinstance(item, str) and (item.lower() == "null" or item.lower() == "none"):
+                    result.append(None)
+                elif isinstance(item, (int, str)):
+                    try:
+                        result.append(int(item))
+                    except (ValueError, TypeError):
+                        result.append(None)
+                else:
+                    result.append(item)
+            return result if result else None  # Return None if empty list
+        return v
     
     @field_validator('start_date', 'end_date', mode='before')
     @classmethod
