@@ -84,3 +84,10 @@ old/
 
 # Backups
 backups/
+
+# Investigation/Analysis scripts (temporary)
+analyze_*.py
+check_*.py
+compare_*.py
+calculate_minutes_manual.py
+summarize_findings.py
