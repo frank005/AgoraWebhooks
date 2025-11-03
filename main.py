@@ -264,6 +264,8 @@ from fastapi.responses import JSONResponse as FastAPIJSONResponse
 import json as json_lib
 
 class UTF8JSONResponse(FastAPIJSONResponse):
+    media_type = "application/json; charset=utf-8"
+    
     def render(self, content) -> bytes:
         json_str = json_lib.dumps(
             content,
