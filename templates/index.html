@@ -869,16 +869,55 @@
             showLoading();
             hideError();
             
+            // Read filter parameters from URL
+            const urlParams = new URLSearchParams(window.location.search);
+            const filterDate = urlParams.get('filterDate');
+            const filterPlatform = urlParams.get('filterPlatform');
+            const filterClientType = urlParams.get('filterClientType');
+            const filterRole = urlParams.get('filterRole');
+            
+            // Build query parameters
+            let queryParams = [`page=${page}`, `per_page=30`];
+            
+            if (filterDate) {
+                // Convert date string (YYYY-MM-DD) to ISO format for API
+                // Use the same date for start and end (single day filter)
+                // Start date: beginning of day (00:00:00Z)
+                // End date: end of day (23:59:59Z) to cover the full day
+                const dateStr = filterDate.includes('T') ? filterDate.split('T')[0] : filterDate;
+                const startDate = `${dateStr}T00:00:00Z`;
+                const endDate = `${dateStr}T23:59:59Z`;
+                queryParams.push(`start_date=${startDate}`);
+                queryParams.push(`end_date=${endDate}`);
+                console.log('Date filter applied:', { filterDate, startDate, endDate });
+            }
+            
+            if (filterPlatform) {
+                queryParams.push(`platform=${filterPlatform}`);
+            }
+            
+            if (filterClientType) {
+                const clientTypeValue = filterClientType === '-1' ? '-1' : filterClientType;
+                queryParams.push(`client_type=${clientTypeValue}`);
+            }
+            
+            if (filterRole) {
+                queryParams.push(`role=${filterRole}`);
+            }
+            
             // Update URL without page reload
             updateURL(appId, null, null, page);
             
             try {
-                const response = await fetch(`/api/channels/${appId}?page=${page}&per_page=30`);
+                const queryString = queryParams.join('&');
+                console.log('API request URL:', `/api/channels/${appId}?${queryString}`);
+                const response = await fetch(`/api/channels/${appId}?${queryString}`);
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
                 
                 const data = await response.json();
+                console.log('API response:', { channels_count: data.channels?.length, total: data.pagination?.total });
                 paginationData = data.pagination;
                 displayChannels(data.channels);
                 updatePagination();
@@ -886,11 +925,69 @@
                 // Show channels view
                 showChannelsView();
                 
+                // Show filter indicator if filters are active
+                if (filterDate || filterPlatform || filterClientType || filterRole) {
+                    showFilterIndicator(filterDate, filterPlatform, filterClientType, filterRole);
+                } else {
+                    hideFilterIndicator();
+                }
+                
             } catch (error) {
                 showError(`Failed to load channels: ${error.message}`);
             } finally {
                 hideLoading();
             }
+        }
+        
+        function showFilterIndicator(filterDate, filterPlatform, filterClientType, filterRole) {
+            let filterHTML = '<div style="margin-bottom: 15px; padding: 10px; background: #e7f3ff; border-left: 4px solid #2196F3; border-radius: 4px;"><strong>🔄 Active Filters:</strong> ';
+            const filters = [];
+            
+            if (filterDate) {
+                filters.push(`Date: ${filterDate}`);
+            }
+            if (filterPlatform) {
+                filters.push(`Platform: ${filterPlatform}`);
+            }
+            if (filterClientType) {
+                const clientTypeValue = filterClientType === '-1' ? 'NULL' : filterClientType;
+                filters.push(`Client Type: ${clientTypeValue}`);
+            }
+            if (filterRole) {
+                filters.push(`Role: ${filterRole}`);
+            }
+            
+            filterHTML += filters.join(' | ');
+            filterHTML += ' <button onclick="clearFilters()" style="margin-left: 10px; padding: 4px 8px; background: #f44336; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem;">Clear Filters</button>';
+            filterHTML += '</div>';
+            
+            const channelsView = document.getElementById('channels-view');
+            const existingFilter = channelsView.querySelector('.filter-indicator');
+            if (existingFilter) {
+                existingFilter.remove();
+            }
+            
+            const filterDiv = document.createElement('div');
+            filterDiv.className = 'filter-indicator';
+            filterDiv.innerHTML = filterHTML;
+            channelsView.insertBefore(filterDiv, channelsView.firstChild);
+        }
+        
+        function hideFilterIndicator() {
+            const channelsView = document.getElementById('channels-view');
+            const existingFilter = channelsView.querySelector('.filter-indicator');
+            if (existingFilter) {
+                existingFilter.remove();
+            }
+        }
+        
+        function clearFilters() {
+            const url = new URL(window.location);
+            url.searchParams.delete('filterDate');
+            url.searchParams.delete('filterPlatform');
+            url.searchParams.delete('filterClientType');
+            url.searchParams.delete('filterRole');
+            window.location.href = url.toString();
         }
         
         function displayChannels(channels) {
@@ -1000,8 +1097,20 @@
         
         // Update URL without page reload
         function updateURL(appId, channel = null, sessionId = null, page = 1) {
-            const url = new URL(window.location);
+            // Read current URL and preserve filter parameters
+            const url = new URL(window.location.href);
+            
+            // Get filter parameters before modifying URL
+            const filterDate = url.searchParams.get('filterDate');
+            const filterPlatform = url.searchParams.get('filterPlatform');
+            const filterClientType = url.searchParams.get('filterClientType');
+            const filterRole = url.searchParams.get('filterRole');
+            
+            console.log('updateURL called - preserving filters:', { filterDate, filterPlatform, filterClientType, filterRole });
+            
+            // Update main parameters
             url.searchParams.set('appId', appId);
+            
             if (channel) {
                 url.searchParams.set('channel', channel);
                 if (sessionId) {
@@ -1019,8 +1128,24 @@
                 url.searchParams.delete('page');
             }
             
+            // Explicitly preserve filter parameters (they might have been deleted above)
+            if (filterDate) {
+                url.searchParams.set('filterDate', filterDate);
+            }
+            if (filterPlatform) {
+                url.searchParams.set('filterPlatform', filterPlatform);
+            }
+            if (filterClientType) {
+                url.searchParams.set('filterClientType', filterClientType);
+            }
+            if (filterRole) {
+                url.searchParams.set('filterRole', filterRole);
+            }
+            
+            console.log('updateURL final URL:', url.href);
+            
             // Update URL without reload
-            window.history.pushState({}, '', url);
+            window.history.pushState({}, '', url.href);
         }
         
         // Copy current URL to clipboard
@@ -1444,10 +1569,35 @@
             currentChannel = null;
             currentSessionId = null;
             
-            // Clear URL parameters completely
-            const url = new URL(window.location);
-            url.search = `?appId=${currentAppId}`;
-            window.history.pushState({}, '', url.toString());
+            // Preserve filter parameters when updating URL
+            const url = new URL(window.location.href);
+            const filterDate = url.searchParams.get('filterDate');
+            const filterPlatform = url.searchParams.get('filterPlatform');
+            const filterClientType = url.searchParams.get('filterClientType');
+            const filterRole = url.searchParams.get('filterRole');
+            
+            // Clear channel-related params but preserve filters
+            url.searchParams.set('appId', currentAppId);
+            url.searchParams.delete('channel');
+            url.searchParams.delete('sessionId');
+            url.searchParams.delete('view');
+            url.searchParams.delete('uid');
+            
+            // Restore filter parameters
+            if (filterDate) {
+                url.searchParams.set('filterDate', filterDate);
+            }
+            if (filterPlatform) {
+                url.searchParams.set('filterPlatform', filterPlatform);
+            }
+            if (filterClientType) {
+                url.searchParams.set('filterClientType', filterClientType);
+            }
+            if (filterRole) {
+                url.searchParams.set('filterRole', filterRole);
+            }
+            
+            window.history.pushState({}, '', url.href);
             
             // Hide all analytics sections first and remove show class
             const analyticsSections = ['user-analytics', 'role-analytics', 'quality-metrics', 'multi-user-analytics'];
@@ -2860,8 +3010,35 @@
             }
         }
         
+        // Store chart data globally for onClick handler
+        let currentChartData = null;
+        let currentChartFilters = null; // Store original filters used to generate chart
+        
         function displayMinutesChart(data) {
             const ctx = document.getElementById('minutesChart').getContext('2d');
+            
+            // Store data globally for onClick handler
+            currentChartData = data;
+            
+            // Store original filters - get from response or from UI
+            const selectedRoles = Array.from(document.querySelectorAll('.role-checkbox:checked')).map(cb => cb.value);
+            const selectedPlatforms = Array.from(document.querySelectorAll('.platform-checkbox:checked')).map(cb => parseInt(cb.value));
+            const selectedClientTypes = Array.from(document.querySelectorAll('.client-type-checkbox:checked')).map(cb => {
+                const value = cb.value;
+                if (value === 'null' || cb.getAttribute('data-is-none') === 'true') {
+                    return null;
+                }
+                return parseInt(value);
+            });
+            
+            currentChartFilters = {
+                roles: selectedRoles,
+                platforms: selectedPlatforms,
+                clientTypes: selectedClientTypes,
+                breakdownBy: document.getElementById('minutesBreakdownBy')?.value || 'role'
+            };
+            
+            console.log('Chart filters stored:', currentChartFilters);
             
             // Destroy existing chart if it exists
             if (minutesChart) {
@@ -2957,10 +3134,109 @@
                         mode: 'index',
                         intersect: false
                     },
+                    onClick: function(event, elements) {
+                        if (elements.length > 0 && currentChartData) {
+                            const element = elements[0];
+                            const datasetIndex = element.datasetIndex;
+                            const index = element.index;
+                            
+                            // Get the clicked data point information from chart data
+                            const clickedDataset = this.data.datasets[datasetIndex];
+                            const clickedDate = currentChartData.data_points[index].date;
+                            const clickedLabel = clickedDataset.label;
+                            
+                            console.log('Chart click:', { datasetIndex, index, clickedLabel, clickedDate });
+                            
+                            // Extract platform, role, client_type from the dataset label
+                            let platform = null;
+                            let clientType = null;
+                            let role = null;
+                            
+                            // Find the matching series to get full details
+                            const matchingSeries = currentChartData.series.find(s => s.label === clickedLabel);
+                            console.log('Matching series:', matchingSeries);
+                            console.log('All series:', currentChartData.series.map(s => ({ label: s.label, role: s.role })));
+                            console.log('Chart filters:', currentChartFilters);
+                            
+                            if (matchingSeries) {
+                                if (matchingSeries.platform !== undefined) {
+                                    platform = matchingSeries.platform;
+                                }
+                                if (matchingSeries.client_type !== undefined && matchingSeries.client_type !== null) {
+                                    clientType = matchingSeries.client_type;
+                                } else if (matchingSeries.client_type === null) {
+                                    clientType = -1; // Special value for NULL
+                                }
+                                // Extract role - check both role field and label parsing
+                                if (matchingSeries.role) {
+                                    role = matchingSeries.role;
+                                } else if (clickedLabel) {
+                                    // Fallback: try to extract role from label (e.g., "Host - Browser")
+                                    const labelLower = clickedLabel.toLowerCase();
+                                    if (labelLower.startsWith('host')) {
+                                        role = 'host';
+                                    } else if (labelLower.startsWith('audience')) {
+                                        role = 'audience';
+                                    }
+                                }
+                            }
+                            
+                            // Only set role filter if a single role was selected in the original chart
+                            // If both roles were selected, don't set role filter (means "all roles")
+                            const shouldSetRoleFilter = currentChartFilters && 
+                                currentChartFilters.roles && 
+                                currentChartFilters.roles.length === 1 &&
+                                role === currentChartFilters.roles[0];
+                            
+                            console.log('Extracted filters:', { platform, clientType, role, date: clickedDate });
+                            console.log('Should set role filter:', shouldSetRoleFilter, 'Original roles:', currentChartFilters?.roles);
+                            
+                            // Navigate to channels page with filters
+                            const appId = document.getElementById('minutesAppId').value.trim();
+                            if (appId) {
+                                // Construct URL from current location
+                                const baseUrl = window.location.origin + (window.location.pathname || '/');
+                                const url = new URL(baseUrl);
+                                
+                                // Clear all filter params first (in case they exist)
+                                url.searchParams.delete('filterDate');
+                                url.searchParams.delete('filterPlatform');
+                                url.searchParams.delete('filterClientType');
+                                url.searchParams.delete('filterRole');
+                                url.searchParams.delete('channel');
+                                url.searchParams.delete('sessionId');
+                                url.searchParams.delete('view');
+                                url.searchParams.delete('page');
+                                
+                                // Set appId and date
+                                url.searchParams.set('appId', appId);
+                                url.searchParams.set('filterDate', clickedDate);
+                                
+                                // Only set filters that have actual values from the clicked data point
+                                if (platform !== null && platform !== undefined) {
+                                    url.searchParams.set('filterPlatform', platform);
+                                }
+                                if (clientType !== null && clientType !== undefined) {
+                                    url.searchParams.set('filterClientType', clientType);
+                                }
+                                // Only set role filter if a single role was selected (not both)
+                                if (shouldSetRoleFilter && role) {
+                                    url.searchParams.set('filterRole', role);
+                                }
+                                
+                                console.log('Navigating to:', url.toString());
+                                console.log('URL search params:', Array.from(url.searchParams.entries()));
+                                console.log('Full URL:', url.href);
+                                
+                                // Navigate to channels view - use full page reload to ensure URL is set
+                                window.location.href = url.href;
+                            }
+                        }
+                    },
                     plugins: {
                         title: {
                             display: true,
-                            text: `Minutes Usage Over Time (${data.period === 'day' ? 'Daily' : 'Monthly'}) - ${data.series.length} Series${timezone === 'UTC' ? ' (UTC)' : ' (Local Time)'}`,
+                            text: `Minutes Usage Over Time (${data.period === 'day' ? 'Daily' : 'Monthly'}) - ${data.series.length} Series${timezone === 'UTC' ? ' (UTC)' : ' (Local Time)'} - Click a data point to view channels`,
                             font: {
                                 size: 16,
                                 weight: 'bold'
@@ -2974,6 +3250,9 @@
                                 },
                                 label: function(context) {
                                     return `${context.dataset.label}: ${context.parsed.y.toFixed(2)} minutes`;
+                                },
+                                footer: function(context) {
+                                    return 'Click to view channels for this date';
                                 }
                             }
                         },

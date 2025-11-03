@@ -5,7 +5,7 @@ import time
 import functools
 from datetime import datetime, timedelta
 from calendar import monthrange
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException, Depends, Form
 from fastapi.responses import HTMLResponse, JSONResponse, Response
@@ -411,19 +411,380 @@ async def web_interface(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 @app.get("/api/channels/{app_id}")
-async def get_channels(app_id: str, page: int = 1, per_page: int = 30, db: Session = Depends(get_db)):
-    """Get list of channels for an App ID with pagination"""
+async def get_channels(
+    app_id: str, 
+    page: int = 1, 
+    per_page: int = 30,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    platform: Optional[int] = None,
+    client_type: Optional[int] = None,
+    role: Optional[str] = None,  # "host" or "audience"
+    db: Session = Depends(get_db)
+):
+    """Get list of channels for an App ID with pagination and optional filters"""
     try:
-        # Calculate total count using subquery
+        from datetime import datetime, time as dt_time
+        
+        # Log incoming filter parameters
+        logger.info(f"get_channels called - app_id: {app_id}, page: {page}, per_page: {per_page}, "
+                   f"start_date: {start_date}, end_date: {end_date}, platform: {platform}, "
+                   f"client_type: {client_type}, role: {role}")
+        
+        # Debug: Check parameter types
+        logger.info(f"Parameter types - start_date: {type(start_date)}, end_date: {type(end_date)}, "
+                   f"platform: {type(platform)}, client_type: {type(client_type)}, role: {type(role)}")
+        
+        # Build base filter
+        base_filter = [
+            ChannelSession.app_id == app_id,
+            ChannelSession.duration_seconds.isnot(None)  # Only include completed sessions
+        ]
+        
+        # Apply date filter if provided (sessions that overlap the date range)
+        if start_date or end_date:
+            # If both dates provided and equal, filter for that single day
+            # Otherwise, filter for sessions that overlap the date range
+            if start_date and end_date:
+                try:
+                    start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                    end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+                    if start_dt.tzinfo is None:
+                        from datetime import timezone
+                        start_dt = start_dt.replace(tzinfo=timezone.utc)
+                    if end_dt.tzinfo is None:
+                        from datetime import timezone
+                        end_dt = end_dt.replace(tzinfo=timezone.utc)
+                    
+                    # Convert to naive UTC for SQLite compatibility (SQLite stores datetimes as strings)
+                    # SQLite datetime comparisons work better with naive UTC datetimes
+                    if start_dt.tzinfo:
+                        start_dt = start_dt.replace(tzinfo=None)
+                    if end_dt.tzinfo:
+                        end_dt = end_dt.replace(tzinfo=None)
+                    
+                    # If same day, use simpler logic
+                    if start_dt.date() == end_dt.date():
+                        day_start = datetime.combine(start_dt.date(), dt_time(0, 0, 0))
+                        day_end = datetime.combine(start_dt.date(), dt_time(23, 59, 59, 999999))
+                        
+                        logger.info(f"Date filter (single day): day_start={day_start}, day_end={day_end} (naive UTC)")
+                        
+                        # Session overlaps if it starts before day ends and ends after day starts
+                        base_filter.append(
+                            or_(
+                                and_(
+                                    ChannelSession.join_time.isnot(None),
+                                    ChannelSession.leave_time.isnot(None),
+                                    ChannelSession.join_time <= day_end,
+                                    ChannelSession.leave_time >= day_start
+                                ),
+                                and_(
+                                    ChannelSession.join_time.isnot(None),
+                                    ChannelSession.leave_time.is_(None),
+                                    ChannelSession.join_time <= day_end
+                                )
+                            )
+                        )
+                    else:
+                        # Date range - sessions that overlap the range
+                        range_start = datetime.combine(start_dt.date(), dt_time(0, 0, 0))
+                        range_end = datetime.combine(end_dt.date(), dt_time(23, 59, 59, 999999))
+                        
+                        logger.info(f"Date filter (date range): range_start={range_start}, range_end={range_end} (naive UTC)")
+                        
+                        # Session overlaps if it starts before range ends and ends after range starts
+                        base_filter.append(
+                            or_(
+                                and_(
+                                    ChannelSession.join_time.isnot(None),
+                                    ChannelSession.leave_time.isnot(None),
+                                    ChannelSession.join_time <= range_end,
+                                    ChannelSession.leave_time >= range_start
+                                ),
+                                and_(
+                                    ChannelSession.join_time.isnot(None),
+                                    ChannelSession.leave_time.is_(None),
+                                    ChannelSession.join_time <= range_end
+                                )
+                            )
+                        )
+                except Exception as e:
+                    logger.error(f"Invalid date format: start_date={start_date}, end_date={end_date}, error: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+            elif start_date:
+                # Only start_date provided
+                try:
+                    start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                    if start_dt.tzinfo is None:
+                        from datetime import timezone
+                        start_dt = start_dt.replace(tzinfo=timezone.utc)
+                    
+                    # Convert to naive UTC for SQLite compatibility
+                    if start_dt.tzinfo:
+                        start_dt = start_dt.replace(tzinfo=None)
+                    
+                    day_start = datetime.combine(start_dt.date(), dt_time(0, 0, 0))
+                    day_end = datetime.combine(start_dt.date(), dt_time(23, 59, 59, 999999))
+                    
+                    logger.info(f"Date filter (start_date only): day_start={day_start}, day_end={day_end} (naive UTC)")
+                    
+                    base_filter.append(
+                        or_(
+                            and_(
+                                ChannelSession.join_time.isnot(None),
+                                ChannelSession.leave_time.isnot(None),
+                                ChannelSession.join_time <= day_end,
+                                ChannelSession.leave_time >= day_start
+                            ),
+                            and_(
+                                ChannelSession.join_time.isnot(None),
+                                ChannelSession.leave_time.is_(None),
+                                ChannelSession.join_time <= day_end
+                            )
+                        )
+                    )
+                except Exception as e:
+                    logger.error(f"Invalid start_date format: {start_date}, error: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+            elif end_date:
+                # Only end_date provided
+                try:
+                    end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+                    if end_dt.tzinfo is None:
+                        from datetime import timezone
+                        end_dt = end_dt.replace(tzinfo=timezone.utc)
+                    
+                    # Convert to naive UTC for SQLite compatibility
+                    if end_dt.tzinfo:
+                        end_dt = end_dt.replace(tzinfo=None)
+                    
+                    day_start = datetime.combine(end_dt.date(), dt_time(0, 0, 0))
+                    day_end = datetime.combine(end_dt.date(), dt_time(23, 59, 59, 999999))
+                    
+                    logger.info(f"Date filter (end_date only): day_start={day_start}, day_end={day_end} (naive UTC)")
+                    
+                    base_filter.append(
+                        or_(
+                            and_(
+                                ChannelSession.join_time.isnot(None),
+                                ChannelSession.leave_time.isnot(None),
+                                ChannelSession.join_time <= day_end,
+                                ChannelSession.leave_time >= day_start
+                            ),
+                            and_(
+                                ChannelSession.join_time.isnot(None),
+                                ChannelSession.leave_time.is_(None),
+                                ChannelSession.join_time <= day_end
+                            )
+                        )
+                    )
+                except Exception as e:
+                    logger.error(f"Invalid end_date format: {end_date}, error: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+        
+        # Apply platform filter if provided
+        if platform is not None:
+            base_filter.append(ChannelSession.platform == platform)
+        
+        # Apply client_type filter if provided
+        if client_type is not None:
+            logger.info(f"Applying client_type filter: client_type={client_type}, type={type(client_type)}")
+            # Ensure client_type is an integer
+            try:
+                client_type_int = int(client_type)
+                logger.info(f"Converted client_type to int: {client_type_int}")
+                if client_type_int == -1:  # Special value for NULL client_type
+                    base_filter.append(ChannelSession.client_type.is_(None))
+                    logger.info("Added filter: ChannelSession.client_type IS NULL")
+                else:
+                    base_filter.append(ChannelSession.client_type == client_type_int)
+                    logger.info(f"Added filter: ChannelSession.client_type == {client_type_int}")
+            except (ValueError, TypeError) as e:
+                logger.error(f"Failed to convert client_type to int: {client_type}, error: {e}")
+                # Try direct comparison as fallback
+                if client_type == -1:
+                    base_filter.append(ChannelSession.client_type.is_(None))
+                else:
+                    base_filter.append(ChannelSession.client_type == client_type)
+        
+        # Apply role filter if provided
+        if role:
+            if role.lower() == "host":
+                base_filter.append(ChannelSession.is_host == True)
+            elif role.lower() == "audience":
+                base_filter.append(ChannelSession.is_host == False)
+        
+        # Log filter application summary
+        logger.info(f"Filter application complete - total filters in base_filter: {len(base_filter)}, "
+                   f"filters: app_id={app_id}, date_filter={bool(start_date or end_date)}, "
+                   f"platform={platform}, client_type={client_type}, role={role}")
+        
+        # Debug: Log each filter condition type
+        logger.info(f"base_filter breakdown: {len(base_filter)} total conditions")
+        if start_date or end_date:
+            logger.info("  - Date filter: APPLIED")
+        if platform is not None:
+            logger.info(f"  - Platform filter: APPLIED (platform={platform})")
+        if client_type is not None:
+            logger.info(f"  - Client type filter: APPLIED (client_type={client_type})")
+        if role:
+            logger.info(f"  - Role filter: APPLIED (role={role})")
+        
+        # Calculate total count using subquery with filters
         subquery = db.query(
             ChannelSession.channel_name,
             ChannelSession.channel_session_id
         ).filter(
-            ChannelSession.app_id == app_id,
-            ChannelSession.duration_seconds.isnot(None)  # Only include completed sessions
+            and_(*base_filter)
         ).group_by(ChannelSession.channel_name, ChannelSession.channel_session_id).subquery()
         
         total_count = db.query(func.count()).select_from(subquery).scalar()
+        logger.info(f"Total channels matching filters: {total_count}")
+        
+        # Debug: Execute a raw test query to verify filters work
+        if start_date or end_date or platform is not None or client_type is not None or role:
+            logger.info("=== DEBUG: Testing individual filters ===")
+            
+            # Test 1: Base query (app_id + duration only)
+            base_count = db.query(ChannelSession).filter(
+                ChannelSession.app_id == app_id,
+                ChannelSession.duration_seconds.isnot(None)
+            ).count()
+            logger.info(f"DEBUG: Sessions with app_id + duration filter: {base_count}")
+            
+            # Test 2: With date filter
+            if start_date or end_date:
+                if start_date and end_date:
+                    try:
+                        test_start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                        test_end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+                        if test_start_dt.tzinfo is None:
+                            from datetime import timezone
+                            test_start_dt = test_start_dt.replace(tzinfo=timezone.utc)
+                        if test_end_dt.tzinfo is None:
+                            from datetime import timezone
+                            test_end_dt = test_end_dt.replace(tzinfo=timezone.utc)
+                        if test_start_dt.tzinfo:
+                            test_start_dt = test_start_dt.replace(tzinfo=None)
+                        if test_end_dt.tzinfo:
+                            test_end_dt = test_end_dt.replace(tzinfo=None)
+                        
+                        if test_start_dt.date() == test_end_dt.date():
+                            test_day_start = datetime.combine(test_start_dt.date(), dt_time(0, 0, 0))
+                            test_day_end = datetime.combine(test_start_dt.date(), dt_time(23, 59, 59, 999999))
+                            
+                            date_count = db.query(ChannelSession).filter(
+                                ChannelSession.app_id == app_id,
+                                ChannelSession.duration_seconds.isnot(None),
+                                or_(
+                                    and_(
+                                        ChannelSession.join_time.isnot(None),
+                                        ChannelSession.leave_time.isnot(None),
+                                        ChannelSession.join_time <= test_day_end,
+                                        ChannelSession.leave_time >= test_day_start
+                                    ),
+                                    and_(
+                                        ChannelSession.join_time.isnot(None),
+                                        ChannelSession.leave_time.is_(None),
+                                        ChannelSession.join_time <= test_day_end
+                                    )
+                                )
+                            ).count()
+                            logger.info(f"DEBUG: Sessions with date filter ({test_day_start} to {test_day_end}): {date_count}")
+                    except Exception as e:
+                        logger.error(f"DEBUG: Error testing date filter: {e}")
+                        import traceback
+                        logger.error(traceback.format_exc())
+            
+            # Test 3: With client_type filter
+            if client_type is not None:
+                try:
+                    client_type_int = int(client_type)
+                    client_type_count = db.query(ChannelSession).filter(
+                        ChannelSession.app_id == app_id,
+                        ChannelSession.duration_seconds.isnot(None),
+                        ChannelSession.client_type == client_type_int
+                    ).count()
+                    logger.info(f"DEBUG: Sessions with client_type filter ({client_type_int}): {client_type_count}")
+                except Exception as e:
+                    logger.error(f"DEBUG: Error testing client_type filter: {e}")
+            
+            # Test 4: Combined filters
+            if start_date and end_date and client_type is not None:
+                try:
+                    test_start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                    test_end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+                    if test_start_dt.tzinfo is None:
+                        from datetime import timezone
+                        test_start_dt = test_start_dt.replace(tzinfo=timezone.utc)
+                    if test_end_dt.tzinfo is None:
+                        from datetime import timezone
+                        test_end_dt = test_end_dt.replace(tzinfo=timezone.utc)
+                    if test_start_dt.tzinfo:
+                        test_start_dt = test_start_dt.replace(tzinfo=None)
+                    if test_end_dt.tzinfo:
+                        test_end_dt = test_end_dt.replace(tzinfo=None)
+                    
+                    if test_start_dt.date() == test_end_dt.date():
+                        test_day_start = datetime.combine(test_start_dt.date(), dt_time(0, 0, 0))
+                        test_day_end = datetime.combine(test_start_dt.date(), dt_time(23, 59, 59, 999999))
+                        
+                        client_type_int = int(client_type)
+                        combined_count = db.query(ChannelSession).filter(
+                            ChannelSession.app_id == app_id,
+                            ChannelSession.duration_seconds.isnot(None),
+                            ChannelSession.client_type == client_type_int,
+                            or_(
+                                and_(
+                                    ChannelSession.join_time.isnot(None),
+                                    ChannelSession.leave_time.isnot(None),
+                                    ChannelSession.join_time <= test_day_end,
+                                    ChannelSession.leave_time >= test_day_start
+                                ),
+                                and_(
+                                    ChannelSession.join_time.isnot(None),
+                                    ChannelSession.leave_time.is_(None),
+                                    ChannelSession.join_time <= test_day_end
+                                )
+                            )
+                        ).count()
+                        logger.info(f"DEBUG: Sessions with date + client_type ({client_type_int}) filters: {combined_count}")
+                        
+                        # Also test the grouped query
+                        combined_grouped = db.query(
+                            ChannelSession.channel_name,
+                            ChannelSession.channel_session_id
+                        ).filter(
+                            ChannelSession.app_id == app_id,
+                            ChannelSession.duration_seconds.isnot(None),
+                            ChannelSession.client_type == client_type_int,
+                            or_(
+                                and_(
+                                    ChannelSession.join_time.isnot(None),
+                                    ChannelSession.leave_time.isnot(None),
+                                    ChannelSession.join_time <= test_day_end,
+                                    ChannelSession.leave_time >= test_day_start
+                                ),
+                                and_(
+                                    ChannelSession.join_time.isnot(None),
+                                    ChannelSession.leave_time.is_(None),
+                                    ChannelSession.join_time <= test_day_end
+                                )
+                            )
+                        ).group_by(ChannelSession.channel_name, ChannelSession.channel_session_id).count()
+                        logger.info(f"DEBUG: Channels (grouped) with date + client_type ({client_type_int}) filters: {combined_grouped}")
+                except Exception as e:
+                    logger.error(f"DEBUG: Error testing combined filters: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+            
+            logger.info("=== END DEBUG ===")
+        
+        # Debug: Check a sample query without filters for comparison
         
         # Calculate offset for pagination
         offset = (page - 1) * per_page
@@ -437,19 +798,162 @@ async def get_channels(app_id: str, page: int = 1, per_page: int = 30, db: Sessi
             func.min(ChannelSession.join_time).label('first_activity'),
             func.max(ChannelSession.leave_time).label('last_activity')
         ).filter(
-            ChannelSession.app_id == app_id,
-            ChannelSession.duration_seconds.isnot(None)  # Only include completed sessions
+            and_(*base_filter)
         ).group_by(ChannelSession.channel_name, ChannelSession.channel_session_id).order_by(desc('last_activity')).offset(offset).limit(per_page).all()
         
+        logger.info(f"Retrieved {len(channel_sessions)} channel sessions for page {page}")
+        if channel_sessions:
+            logger.info(f"Sample channels returned (first 3): {[(s.channel_name, s.channel_session_id, s.first_activity, s.last_activity) for s in channel_sessions[:3]]}")
+        
         # Get client types for each channel session separately (SQLite compatible)
+        # Apply the same filters as the main query to ensure consistency
         channel_client_types = {}
         for session in channel_sessions:
             key = (session.channel_name, session.channel_session_id)
-            client_types = db.query(ChannelSession.client_type).filter(
+            # Build filter for client_types query - apply same filters as main query
+            client_type_filter = [
                 ChannelSession.app_id == app_id,
                 ChannelSession.channel_name == session.channel_name,
                 ChannelSession.channel_session_id == session.channel_session_id,
                 ChannelSession.client_type.isnot(None)
+            ]
+            
+            # Apply date filter if it was applied to main query
+            if start_date or end_date:
+                # Rebuild the date filter for this query (same logic as main query)
+                if start_date and end_date:
+                    try:
+                        start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                        end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+                        if start_dt.tzinfo is None:
+                            from datetime import timezone
+                            start_dt = start_dt.replace(tzinfo=timezone.utc)
+                        if end_dt.tzinfo is None:
+                            from datetime import timezone
+                            end_dt = end_dt.replace(tzinfo=timezone.utc)
+                        
+                        # Convert to naive UTC for SQLite compatibility
+                        if start_dt.tzinfo:
+                            start_dt = start_dt.replace(tzinfo=None)
+                        if end_dt.tzinfo:
+                            end_dt = end_dt.replace(tzinfo=None)
+                        
+                        if start_dt.date() == end_dt.date():
+                            day_start = datetime.combine(start_dt.date(), dt_time(0, 0, 0))
+                            day_end = datetime.combine(start_dt.date(), dt_time(23, 59, 59, 999999))
+                            client_type_filter.append(
+                                or_(
+                                    and_(
+                                        ChannelSession.join_time.isnot(None),
+                                        ChannelSession.leave_time.isnot(None),
+                                        ChannelSession.join_time <= day_end,
+                                        ChannelSession.leave_time >= day_start
+                                    ),
+                                    and_(
+                                        ChannelSession.join_time.isnot(None),
+                                        ChannelSession.leave_time.is_(None),
+                                        ChannelSession.join_time <= day_end
+                                    )
+                                )
+                            )
+                        else:
+                            range_start = datetime.combine(start_dt.date(), dt_time(0, 0, 0))
+                            range_end = datetime.combine(end_dt.date(), dt_time(23, 59, 59, 999999))
+                            client_type_filter.append(
+                                or_(
+                                    and_(
+                                        ChannelSession.join_time.isnot(None),
+                                        ChannelSession.leave_time.isnot(None),
+                                        ChannelSession.join_time <= range_end,
+                                        ChannelSession.leave_time >= range_start
+                                    ),
+                                    and_(
+                                        ChannelSession.join_time.isnot(None),
+                                        ChannelSession.leave_time.is_(None),
+                                        ChannelSession.join_time <= range_end
+                                    )
+                                )
+                            )
+                    except Exception as e:
+                        logger.warning(f"Error applying date filter to client_types query: {e}")
+                elif start_date:
+                    try:
+                        start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                        if start_dt.tzinfo is None:
+                            from datetime import timezone
+                            start_dt = start_dt.replace(tzinfo=timezone.utc)
+                        
+                        # Convert to naive UTC for SQLite compatibility
+                        if start_dt.tzinfo:
+                            start_dt = start_dt.replace(tzinfo=None)
+                        
+                        day_start = datetime.combine(start_dt.date(), dt_time(0, 0, 0))
+                        day_end = datetime.combine(start_dt.date(), dt_time(23, 59, 59, 999999))
+                        client_type_filter.append(
+                            or_(
+                                and_(
+                                    ChannelSession.join_time.isnot(None),
+                                    ChannelSession.leave_time.isnot(None),
+                                    ChannelSession.join_time <= day_end,
+                                    ChannelSession.leave_time >= day_start
+                                ),
+                                and_(
+                                    ChannelSession.join_time.isnot(None),
+                                    ChannelSession.leave_time.is_(None),
+                                    ChannelSession.join_time <= day_end
+                                )
+                            )
+                        )
+                    except Exception as e:
+                        logger.warning(f"Error applying start_date filter to client_types query: {e}")
+                elif end_date:
+                    try:
+                        end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+                        if end_dt.tzinfo is None:
+                            from datetime import timezone
+                            end_dt = end_dt.replace(tzinfo=timezone.utc)
+                        
+                        # Convert to naive UTC for SQLite compatibility
+                        if end_dt.tzinfo:
+                            end_dt = end_dt.replace(tzinfo=None)
+                        
+                        day_start = datetime.combine(end_dt.date(), dt_time(0, 0, 0))
+                        day_end = datetime.combine(end_dt.date(), dt_time(23, 59, 59, 999999))
+                        client_type_filter.append(
+                            or_(
+                                and_(
+                                    ChannelSession.join_time.isnot(None),
+                                    ChannelSession.leave_time.isnot(None),
+                                    ChannelSession.join_time <= day_end,
+                                    ChannelSession.leave_time >= day_start
+                                ),
+                                and_(
+                                    ChannelSession.join_time.isnot(None),
+                                    ChannelSession.leave_time.is_(None),
+                                    ChannelSession.join_time <= day_end
+                                )
+                            )
+                        )
+                    except Exception as e:
+                        logger.warning(f"Error applying end_date filter to client_types query: {e}")
+            
+            # Apply platform filter if provided
+            if platform is not None:
+                client_type_filter.append(ChannelSession.platform == platform)
+            
+            # Apply client_type filter if provided (but still get distinct client_types for display)
+            # Note: This filter doesn't make sense for client_types query, but we apply it for consistency
+            # Actually, we should NOT filter by client_type here since we want all client_types for the channel
+            
+            # Apply role filter if provided
+            if role:
+                if role.lower() == "host":
+                    client_type_filter.append(ChannelSession.is_host == True)
+                elif role.lower() == "audience":
+                    client_type_filter.append(ChannelSession.is_host == False)
+            
+            client_types = db.query(ChannelSession.client_type).filter(
+                and_(*client_type_filter)
             ).distinct().all()
             channel_client_types[key] = [ct[0] for ct in client_types if ct[0] is not None]
         

@@ -15,6 +15,7 @@ A comprehensive Python-based webhook server for receiving and processing Agora v
 - **Beautiful UI**: Modern, responsive web interface with gradient design
 - **Real-time Analytics**: Live channel statistics and user metrics
 - **Interactive Search**: Search channels by name with pagination
+- **Advanced Filtering**: Filter channels by date, platform, client type, and role with URL persistence
 - **Detailed Views**: Comprehensive channel and user session details
 - **Mobile Responsive**: Works perfectly on desktop and mobile devices
 - **Shareable Links**: Permalink functionality for sharing specific channels with team members
@@ -22,6 +23,7 @@ A comprehensive Python-based webhook server for receiving and processing Agora v
 - **Role Analytics**: Track host vs audience minutes with role switching detection
 - **Concurrent Users Graph**: Visualize concurrent users over time for each channel session
 - **Role Indicators**: Visual mic/ear icons showing user roles (🎤 Host, 👂 Audience) with stacked indicators for role switches
+- **Chart Drill-Down**: Click data points in Minutes Analytics to filter channels automatically
 
 ### Data Management
 - **SQLite Database**: Lightweight, file-based database for easy deployment
@@ -169,7 +171,15 @@ curl -X POST https://your-domain.com/your-app-id/webhooks \
 
 ### API Endpoints
 
-- `GET /api/channels/{app_id}` - Get list of channels for an App ID with pagination
+- `GET /api/channels/{app_id}` - Get list of channels for an App ID with pagination and optional filters
+  - **Query Parameters:**
+    - `page` (int, default: 1) - Page number for pagination
+    - `per_page` (int, default: 30) - Number of results per page
+    - `start_date` (string, optional) - Filter by start date (ISO format: `YYYY-MM-DDTHH:MM:SSZ`)
+    - `end_date` (string, optional) - Filter by end date (ISO format: `YYYY-MM-DDTHH:MM:SSZ`)
+    - `platform` (int, optional) - Filter by platform ID (1=Android, 2=iOS, 5=Windows, 6=Linux, 7=Web, 8=macOS)
+    - `client_type` (int, optional) - Filter by client type (e.g., 10=Cloud Recording, 28=Media Pull, 30=Media Push, 60=Conversational AI, -1=NULL)
+    - `role` (string, optional) - Filter by role (`"host"` or `"audience"`)
 - `GET /api/channel/{app_id}/{channel_name}` - Get detailed channel information with role-split metrics
 - `GET /api/channel/{app_id}/{channel_name}/role-analytics` - Get role and product analytics with wall clock time
 - `GET /api/channel/{app_id}/{channel_name}/quality-metrics` - Get quality metrics with concurrent users graph data
@@ -182,6 +192,141 @@ curl -X POST https://your-domain.com/your-app-id/webhooks \
 
 - `GET /` - Main dashboard interface with search and analytics
 - `GET /?appId={app_id}&channel={channel_name}&sessionId={session_id}` - Direct channel view with permalink support
+- `GET /?appId={app_id}&filterDate={date}&filterPlatform={platform}&filterClientType={client_type}&filterRole={role}` - Channels list with filters
+
+## 🔍 Filtering System
+
+The dashboard supports comprehensive filtering to help you analyze your Agora channel data efficiently. Filters can be applied in multiple ways and persist in the URL for easy bookmarking and sharing.
+
+### Available Filters
+
+#### 1. **Date Filter** (`filterDate`)
+- **Format**: `YYYY-MM-DD` (e.g., `2025-11-01`)
+- **Purpose**: Filter channels to show only sessions that occurred on a specific date
+- **Usage**: When filtering by date, the system shows channels that have sessions overlapping with the specified date
+- **Example**: `?appId=your-app-id&filterDate=2025-11-01`
+
+#### 2. **Platform Filter** (`filterPlatform`)
+- **Values**: Platform ID numbers
+  - `1` - Android
+  - `2` - iOS
+  - `5` - Windows
+  - `6` - Linux
+  - `7` - Web
+  - `8` - macOS
+- **Purpose**: Filter channels to show only sessions from a specific platform
+- **Example**: `?appId=your-app-id&filterPlatform=7` (Web only)
+
+#### 3. **Client Type Filter** (`filterClientType`)
+- **Values**: Client type ID numbers or `-1` for NULL
+  - `3` - Local Recording
+  - `8` - Applets
+  - `10` - Cloud Recording
+  - `28` - Media Pull
+  - `30` - Media Push
+  - `43` - Media Relay
+  - `47` - STT PubBot
+  - `48` - STT SubBot
+  - `50` - Media Gateway
+  - `60` - Conversational AI
+  - `68` - Real-Time STT
+  - `-1` - NULL (no client type specified)
+- **Purpose**: Filter channels to show only sessions using a specific client type
+- **Example**: `?appId=your-app-id&filterClientType=10` (Cloud Recording only)
+- **Special Case**: Use `-1` to filter for sessions with NULL client type (typically Linux platform sessions)
+
+#### 4. **Role Filter** (`filterRole`)
+- **Values**: `"host"` or `"audience"`
+- **Purpose**: Filter channels to show only sessions for users with a specific role
+  - `host` - Shows only host/broadcaster sessions
+  - `audience` - Shows only audience/listener sessions
+- **Example**: `?appId=your-app-id&filterRole=host`
+- **Note**: If both roles are selected in the minutes analytics chart, no role filter is applied (shows all roles)
+
+### How Filters Work
+
+#### Applying Filters
+
+1. **Via URL Parameters**: Add filter parameters directly to the URL
+   ```
+   https://your-domain.com/?appId=your-app-id&filterDate=2025-11-01&filterPlatform=7&filterRole=host
+   ```
+
+2. **Via Chart Drill-Down**: Click on any data point in the Minutes Analytics chart
+   - The system automatically extracts filters from the clicked data point
+   - Navigates to the channels list with filters applied
+   - URL is updated with all relevant filter parameters
+
+3. **Filter Combinations**: Multiple filters can be combined
+   - Filters work together (AND logic)
+   - Example: `filterDate=2025-11-01&filterPlatform=7&filterRole=host` shows only Web host sessions on Nov 1, 2025
+
+#### Filter Indicator
+
+When filters are active, a blue banner appears at the top of the channels list showing:
+- **Active Filters**: Lists all currently applied filters
+- **Clear Filters Button**: One-click removal of all filters
+
+Example display:
+```
+🔄 Active Filters: Date: 2025-11-01 | Platform: 7 | Client Type: 10 | Role: host  [Clear Filters]
+```
+
+#### Filter Persistence
+
+- **URL Preservation**: All filters are stored in the URL query parameters
+- **Bookmarkable**: You can bookmark filtered views for quick access
+- **Shareable**: Share filtered URLs with team members
+- **Auto-Restoration**: When navigating between pages, filters are automatically preserved
+
+#### Special Behaviors
+
+1. **Role Filter Logic**:
+   - When filtering from the minutes analytics chart:
+     - If **one role** was selected in the chart → role filter is applied
+     - If **both roles** were selected → no role filter (shows all roles)
+   - This ensures that clicking a data point when viewing all roles doesn't restrict the results
+
+2. **Date Filter Behavior**:
+   - Single date filter (`filterDate`) filters for sessions that overlap with that date
+   - When both `start_date` and `end_date` are the same, it filters for that single day
+   - Sessions are included if they overlap with the date range, even if they started before or ended after
+
+3. **Client Type NULL Handling**:
+   - Use `filterClientType=-1` to filter for sessions with NULL client type
+   - Commonly seen in Linux platform sessions where client type may not be specified
+
+### Filter Examples
+
+**Example 1: Filter by Date**
+```
+?appId=your-app-id&filterDate=2025-11-01
+```
+Shows all channels with sessions on November 1, 2025.
+
+**Example 2: Filter by Platform and Role**
+```
+?appId=your-app-id&filterPlatform=7&filterRole=host
+```
+Shows only Web platform host sessions.
+
+**Example 3: Filter by Date, Platform, and Client Type**
+```
+?appId=your-app-id&filterDate=2025-11-01&filterPlatform=6&filterClientType=-1
+```
+Shows Linux platform sessions with NULL client type on November 1, 2025.
+
+**Example 4: Complex Filter Combination**
+```
+?appId=your-app-id&filterDate=2025-11-01&filterPlatform=7&filterClientType=10&filterRole=host
+```
+Shows Web platform Cloud Recording host sessions on November 1, 2025.
+
+### Clearing Filters
+
+- **Clear Filters Button**: Click the "Clear Filters" button in the filter indicator banner
+- **Manual Removal**: Remove filter parameters from the URL
+- **New Search**: Start a new search without filters
 
 ## 🗄️ Database Schema
 
@@ -205,9 +350,18 @@ curl -X POST https://your-domain.com/your-app-id/webhooks \
 
 ## 🔍 Advanced Features
 
+### Filtering System
+- **Comprehensive Filters**: Filter channels by date, platform, client type, and role
+- **URL-Based Filtering**: All filters persist in URL for bookmarking and sharing
+- **Chart Drill-Down**: Click data points in Minutes Analytics to filter channels
+- **Filter Combinations**: Combine multiple filters for precise analysis
+- **Filter Indicator**: Visual banner showing active filters with one-click clear
+- See the [Filtering System](#-filtering-system) section for detailed documentation
+
 ### Permalink Functionality
 - **Shareable URLs**: Direct links to specific channels and sessions
 - **URL Parameters**: Support for `?appId={app_id}&channel={channel_name}&sessionId={session_id}`
+- **Filter Support**: Permalinks include filter parameters for filtered views
 - **Auto-navigation**: Automatically loads specified channels when visiting permalinks
 - **Share Button**: One-click URL copying with visual feedback
 - **Browser History**: Proper URL updates without page reloads
@@ -367,14 +521,21 @@ AgoraWebhooks/
 ### Utility Scripts
 
 **fix_emojis.py** - Fixes UTF-8 encoding issues that corrupt emojis to '??' or '?'
-- Run manually if needed: `python3 fix_emojis.py`
 - **Automatically runs before git commits** (via pre-commit hook)
 - **Automatically runs after git pull/merge** (via post-merge hook)
 - **Automatically runs during deployment** (via deploy.sh)
+- Run manually if needed: `python3 fix_emojis.py`
 - Automatically fixes all emojis in `main.py` and `templates/index.html`
 - Includes verification to ensure all emojis are properly restored
+- **Enhanced Protection**: The script now handles partial emoji corruption and edge cases
 
-**Note**: Emojis may get corrupted when files are edited through certain tools. The git hooks ensure they're automatically fixed before commits and after pulls, so you don't need to manually run the script.
+**Emoji Protection System**:
+- ✅ **Git Hooks**: Pre-commit and post-merge hooks automatically fix emojis
+- ✅ **EditorConfig**: `.editorconfig` file ensures UTF-8 encoding for all editors
+- ✅ **Deploy Script**: Deployment automatically fixes emojis before deploying
+- ✅ **Manual Fix**: Run `python3 fix_emojis.py` anytime to fix broken emojis
+
+**Note**: Emojis may get corrupted when files are edited through certain tools that don't preserve UTF-8 encoding properly. The git hooks and EditorConfig file help prevent this, but if you notice broken emojis, simply run `python3 fix_emojis.py` to fix them automatically.
 
 ### Adding New Features
 
@@ -428,6 +589,12 @@ For issues and questions:
 ## 🔄 Changelog
 
 ### Recent Updates
+- ✅ **Fixed Date and Client Type Filters**: Resolved issue where date and client_type filters were not working correctly
+  - Fixed SQLite datetime comparison by converting timezone-aware datetimes to naive UTC format
+  - Fixed client_type parameter parsing to ensure proper integer conversion
+  - Added comprehensive debug logging for filter troubleshooting
+  - Filters now work correctly for date ranges and client type filtering
+  - **Important**: Service restart required after code changes for filters to take effect
 - ✅ **Enhanced Emoji Fix Script**: Improved `fix_emojis.py` with comprehensive pattern matching
   - Now handles all emoji patterns including template literals, flag mappings, analytics buttons, and section headers
   - Added direct string replacements for reliable emoji restoration

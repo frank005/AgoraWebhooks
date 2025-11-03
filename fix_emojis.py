@@ -143,8 +143,12 @@ def fix_all_emojis():
         (r"const\s+icon\s*=\s*isHost\s*\?\s*'(\?|\?\?)'\s*:\s*'(\?|\?\?)'", "const icon = isHost ? '🎤' : '👂'"),
         # Fix "Many Series Detected" warning
         (r"<strong>(\?\?)\s*Many Series Detected:", "<strong>⚠️ Many Series Detected:"),
-        # Fix comment with broken emojis
+        # Fix comment with broken emojis - handle partial fixes
         (r"// Mic icon \((\?\?)\) for Host, Ear icon \((\?\?)\) for Audience", "// Mic icon (🎤) for Host, Ear icon (👂) for Audience"),
+        (r"// Mic icon \(🎤\) for Host, Ear icon \((\?\?)\) for Audience", "// Mic icon (🎤) for Host, Ear icon (👂) for Audience"),
+        (r"// Mic icon \((\?\?)\) for Host, Ear icon \(👂\) for Audience", "// Mic icon (🎤) for Host, Ear icon (👂) for Audience"),
+        # Active Filters text
+        (r"<strong>(\?\?)\s*Active Filters:", "<strong>🔄 Active Filters:"),
         # Headers
         (r"<h4>(\?|\?\?)\s*Panel", "<h4>👤 Panel"),
         (r"<h3>(\?|\?\?)\s*Overview</h3>", "<h3>📊 Overview</h3>"),
@@ -219,6 +223,9 @@ def fix_all_emojis():
     html_content = html_content.replace('">???? Multi-User View', '">👥👥 Multi-User View')
     html_content = html_content.replace("textContent = '?? Share Link'", "textContent = '📋 Share Link'")
     html_content = html_content.replace("// Mic icon (??) for Host, Ear icon (??) for Audience", "// Mic icon (🎤) for Host, Ear icon (👂) for Audience")
+    html_content = html_content.replace("// Mic icon (🎤) for Host, Ear icon (??) for Audience", "// Mic icon (🎤) for Host, Ear icon (👂) for Audience")
+    html_content = html_content.replace("// Mic icon (??) for Host, Ear icon (👂) for Audience", "// Mic icon (🎤) for Host, Ear icon (👂) for Audience")
+    html_content = html_content.replace("<strong>?? Active Filters:", "<strong>🔄 Active Filters:")
     html_content = html_content.replace("<h4>?? Panel", "<h4>👤 Panel")
     html_content = html_content.replace("<h3>?? Overview</h3>", "<h3>📊 Overview</h3>")
     html_content = html_content.replace("<h3>?? Platform Distribution</h3>", "<h3>📱 Platform Distribution</h3>")
