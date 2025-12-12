@@ -578,6 +578,59 @@
             background: linear-gradient(135deg, #e83e8c 0%, #d63384 100%);
         }
         
+        .flag-media-server {
+            background: linear-gradient(135deg, #6610f2 0%, #520dc2 100%);
+        }
+        
+        .flag-video-moderation {
+            background: linear-gradient(135deg, #e83e8c 0%, #d91a72 100%);
+        }
+        
+        .flag-linux-send {
+            background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);
+        }
+        
+        .flag-linux-receive {
+            background: linear-gradient(135deg, #20c997 0%, #17a2b8 100%);
+        }
+        
+        .flag-server-gateway {
+            background: linear-gradient(135deg, #495057 0%, #343a40 100%);
+        }
+        
+        .flag-transcoder-relay {
+            background: linear-gradient(135deg, #fd7e14 0%, #e55a00 100%);
+        }
+        
+        .flag-rtsa-lite {
+            background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
+        }
+        
+        .flag-rtsa-pro {
+            background: linear-gradient(135deg, #20c997 0%, #17a2b8 100%);
+        }
+        
+        .flag-web-recording {
+            background: linear-gradient(135deg, #6f42c1 0%, #5a32a3 100%);
+        }
+        
+        .flag-transcoder {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+        }
+        
+        .flag-rtls {
+            background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%);
+            color: #212529;
+        }
+        
+        .flag-ten-gateway {
+            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+        }
+        
+        .flag-sip-gateway {
+            background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);
+        }
+        
     </style>
 </head>
 <body>
@@ -943,6 +996,36 @@
             let filterHTML = '<div style="margin-bottom: 15px; padding: 10px; background: #e7f3ff; border-left: 4px solid #2196F3; border-radius: 4px;"><strong>🔄 Active Filters:</strong> ';
             const filters = [];
             
+            const clientTypeNames = {
+                3: "Local Recording",
+                8: "Applets",
+                10: "Cloud Recording",
+                15: "Media Server",
+                27: "Agora Video Moderation",
+                28: "Media Pull",
+                30: "Media Push",
+                31: "Linux Server SDK Send",
+                32: "Linux Server SDK Receive",
+                33: "Server Gateway",
+                38: "Cloud Transcoder Relay",
+                40: "RTSA Lite",
+                41: "RTSA Pro",
+                42: "Web Recording",
+                43: "Media Relay",
+                47: "STT PubBot",
+                48: "STT SubBot",
+                50: "Media Gateway",
+                51: "Media Gateway Standard Codec",
+                52: "Media Gateway Advanced Codec",
+                54: "Cloud Transcoder Standard",
+                55: "Cloud Transcoder Advanced",
+                60: "Conversational AI",
+                68: "Real-Time STT",
+                69: "RTLS Fallback HLS",
+                70: "TEN Gateway",
+                71: "SIP Gateway"
+            };
+            
             if (filterDate) {
                 filters.push(`Date: ${filterDate}`);
             }
@@ -950,8 +1033,12 @@
                 filters.push(`Platform: ${filterPlatform}`);
             }
             if (filterClientType) {
-                const clientTypeValue = filterClientType === '-1' ? 'NULL' : filterClientType;
-                filters.push(`Client Type: ${clientTypeValue}`);
+                if (filterClientType === '-1') {
+                    filters.push(`Client Type: NULL`);
+                } else {
+                    const clientTypeName = clientTypeNames[parseInt(filterClientType)] || filterClientType;
+                    filters.push(`Client Type: ${clientTypeName}`);
+                }
             }
             if (filterRole) {
                 filters.push(`Role: ${filterRole}`);
@@ -1042,14 +1129,60 @@
                 3: { class: 'flag-local-recording', text: '📹 Local Recording' },
                 8: { class: 'flag-applets', text: '📱 Applets' },
                 10: { class: 'flag-cloud-recording', text: '☁️ Cloud Recording' },
+                15: { class: 'flag-media-server', text: '🖥️ Media Server' },
+                27: { class: 'flag-video-moderation', text: '🔍 Agora Video Moderation' },
                 28: { class: 'flag-media-pull', text: '⬇️ Media Pull' },
                 30: { class: 'flag-media-push', text: '⬆️ Media Push' },
+                31: { class: 'flag-linux-send', text: '🐧 Linux Server SDK Send' },
+                32: { class: 'flag-linux-receive', text: '🐧 Linux Server SDK Receive' },
+                33: { class: 'flag-server-gateway', text: '🚪 Server Gateway' },
+                38: { class: 'flag-transcoder-relay', text: '🔄 Cloud Transcoder Relay' },
+                40: { class: 'flag-rtsa-lite', text: '📡 RTSA Lite' },
+                41: { class: 'flag-rtsa-pro', text: '📡 RTSA Pro' },
+                42: { class: 'flag-web-recording', text: '🌐 Web Recording' },
                 43: { class: 'flag-media-relay', text: '🔄 Media Relay' },
                 47: { class: 'flag-stt', text: '🎤 STT PubBot' },
                 48: { class: 'flag-stt', text: '🎧 STT SubBot' },
                 50: { class: 'flag-media-gateway', text: '🌐 Media Gateway' },
+                51: { class: 'flag-media-gateway', text: '🌐 Media Gateway Standard Codec' },
+                52: { class: 'flag-media-gateway', text: '🌐 Media Gateway Advanced Codec' },
+                54: { class: 'flag-transcoder', text: '☁️ Cloud Transcoder Standard' },
+                55: { class: 'flag-transcoder', text: '☁️ Cloud Transcoder Advanced' },
                 60: { class: 'flag-conversational-ai', text: '🤖 Conversational AI' },
-                68: { class: 'flag-stt', text: '🎙️ Real-Time STT' }
+                68: { class: 'flag-stt', text: '🎙️ Real-Time STT' },
+                69: { class: 'flag-rtls', text: '📺 RTLS Fallback HLS' },
+                70: { class: 'flag-ten-gateway', text: '🔗 TEN Gateway' },
+                71: { class: 'flag-sip-gateway', text: '☎️ SIP Gateway' }
+            };
+            
+            const clientTypeNames = {
+                3: "Local Recording",
+                8: "Applets",
+                10: "Cloud Recording",
+                15: "Media Server",
+                27: "Agora Video Moderation",
+                28: "Media Pull",
+                30: "Media Push",
+                31: "Linux Server SDK Send",
+                32: "Linux Server SDK Receive",
+                33: "Server Gateway",
+                38: "Cloud Transcoder Relay",
+                40: "RTSA Lite",
+                41: "RTSA Pro",
+                42: "Web Recording",
+                43: "Media Relay",
+                47: "STT PubBot",
+                48: "STT SubBot",
+                50: "Media Gateway",
+                51: "Media Gateway Standard Codec",
+                52: "Media Gateway Advanced Codec",
+                54: "Cloud Transcoder Standard",
+                55: "Cloud Transcoder Advanced",
+                60: "Conversational AI",
+                68: "Real-Time STT",
+                69: "RTLS Fallback HLS",
+                70: "TEN Gateway",
+                71: "SIP Gateway"
             };
             
             const flags = clientTypes.map(clientType => {
@@ -1057,7 +1190,9 @@
                 if (mapping) {
                     return `<span class="channel-flag ${mapping.class}">${mapping.text}</span>`;
                 }
-                return `<span class="channel-flag" style="background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%);">Type ${clientType}</span>`;
+                // Fallback to client type name if no flag mapping exists
+                const clientTypeName = clientTypeNames[clientType] || `Type ${clientType}`;
+                return `<span class="channel-flag" style="background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%);">${clientTypeName}</span>`;
             }).join('');
             
             return `<div class="channel-flags">${flags}</div>`;
@@ -1362,14 +1497,30 @@
                                         3: "Local server recording",
                                         8: "Applets", 
                                         10: "Cloud recording",
+                                        15: "Media Server",
+                                        27: "Agora Video Moderation",
 					28: "Media Pull",
 					30: "Media Push",
+					31: "Linux Server SDK Send",
+					32: "Linux Server SDK Receive",
+					33: "Server Gateway",
+					38: "Cloud Transcoder Relay",
+					40: "RTSA Lite",
+					41: "RTSA Pro",
+					42: "Web Recording",
 					43: "Media Relay",
 					47: "STT pubBot 6.x",
 					48: "STT subBot 6.x",
 					50: "Media Gateway",
+					51: "Media Gateway Standard Codec",
+					52: "Media Gateway Advanced Codec",
+					54: "Cloud Transcoder Standard",
+					55: "Cloud Transcoder Advanced",
 					60: "Conversational AI",
-					68: "Real-Time STT"
+					68: "Real-Time STT",
+					69: "RTLS Fallback HLS",
+					70: "TEN Gateway",
+					71: "SIP Gateway"
                                     };
                                     
                                     platformName = platformNames[session.platform] || session.platform;
@@ -3343,7 +3494,7 @@
                     summaryHTML += `Platforms: ${platformList}<br>`;
                 }
                 if (data.filters.client_types && data.filters.client_types.length > 0) {
-                    const clientTypeNames = {3: 'Local Recording', 8: 'Applets', 10: 'Cloud Recording', 28: 'Media Pull', 30: 'Media Push', 43: 'Media Relay', 47: 'STT PubBot', 48: 'STT SubBot', 50: 'Media Gateway', 60: 'Conversational AI', 68: 'Real-Time STT'};
+                    const clientTypeNames = {3: 'Local Recording', 8: 'Applets', 10: 'Cloud Recording', 15: 'Media Server', 27: 'Agora Video Moderation', 28: 'Media Pull', 30: 'Media Push', 31: 'Linux Server SDK Send', 32: 'Linux Server SDK Receive', 33: 'Server Gateway', 38: 'Cloud Transcoder Relay', 40: 'RTSA Lite', 41: 'RTSA Pro', 42: 'Web Recording', 43: 'Media Relay', 47: 'STT PubBot', 48: 'STT SubBot', 50: 'Media Gateway', 51: 'Media Gateway Standard Codec', 52: 'Media Gateway Advanced Codec', 54: 'Cloud Transcoder Standard', 55: 'Cloud Transcoder Advanced', 60: 'Conversational AI', 68: 'Real-Time STT', 69: 'RTLS Fallback HLS', 70: 'TEN Gateway', 71: 'SIP Gateway'};
                     const clientTypeList = data.filters.client_types.map(id => clientTypeNames[id] || id).join(', ');
                     summaryHTML += `Client Types: ${clientTypeList}<br>`;
                 }

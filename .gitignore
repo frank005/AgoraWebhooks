@@ -40,6 +40,8 @@ venv.bak/
 
 # Logs
 *.log
+*.log.*
+*.log[0-9]*
 logs/
 
 # IDE
@@ -91,6 +93,20 @@ check_*.py
 compare_*.py
 calculate_minutes_manual.py
 summarize_findings.py
+
+# Temporary analysis/documentation files
+QUALITY_*.md
+ANALYSIS_*.md
+TEMP_*.md
+*_ANALYSIS.md
+*_QUALITY.md
+
+# Old/backup versions of files
+*_old.py
+*_old.sh
+*_backup.*
+*.bak
+*.orig
 
 # Archive folder - contains old/unused files
 archive/

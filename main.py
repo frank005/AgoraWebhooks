@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 import time
 import functools
 from datetime import datetime, timedelta
@@ -23,12 +24,12 @@ from webhook_processor import WebhookProcessor
 from export_service import ExportService
 from security import SecurityConfig, rate_limiter, get_rate_limit_headers, WebhookValidator, ExportSecurity
 
-# Configure logging
+# Configure logging with rotation: 10 files at 150MB each (max ~1.5GB total)
 logging.basicConfig(
     level=getattr(logging, Config.LOG_LEVEL),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(Config.LOG_FILE),
+        RotatingFileHandler(Config.LOG_FILE, maxBytes=150*1024*1024, backupCount=10),
         logging.StreamHandler()
     ]
 )

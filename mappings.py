@@ -26,14 +26,30 @@ CLIENT_TYPE_MAPPING = {
     3: "Local Recording",
     8: "Applets", 
     10: "Cloud Recording",
+    15: "Media Server",
+    27: "Agora Video Moderation",
     28: "Media Pull",
     30: "Media Push",
+    31: "Linux Server SDK Send",
+    32: "Linux Server SDK Receive",
+    33: "Server Gateway",
+    38: "Cloud Transcoder Relay",
+    40: "RTSA Lite",
+    41: "RTSA Pro",
+    42: "Web Recording",
     43: "Media Relay",
     47: "STT PubBot",
     48: "STT SubBot",
     50: "Media Gateway",
+    51: "Media Gateway Standard Codec",
+    52: "Media Gateway Advanced Codec",
+    54: "Cloud Transcoder Standard",
+    55: "Cloud Transcoder Advanced",
     60: "Conversational AI",
-    68: "Real-Time STT"
+    68: "Real-Time STT",
+    69: "RTLS Fallback HLS",
+    70: "TEN Gateway",
+    71: "SIP Gateway"
 }
 
 def get_client_type_name(client_type_id):
