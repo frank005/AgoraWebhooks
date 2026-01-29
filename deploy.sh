@@ -202,10 +202,19 @@ print_warning "   - Certbot needs port 80 to validate domain ownership"
 
 # Create nginx configuration (without SSL initially - certbot will add it)
 print_status "Creating nginx configuration..."
+
+# Ensure ACME challenge directory exists for certbot renewals
+sudo mkdir -p /var/www/html/.well-known/acme-challenge
+
 sudo tee /etc/nginx/sites-available/agora-webhooks > /dev/null << EOF
 server {
     listen 80;
     server_name ${DOMAIN_NAME} www.${DOMAIN_NAME};
+    
+    # Allow ACME challenge for certbot renewal (IMPORTANT: must be before redirect)
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
     
     # Proxy to FastAPI application (HTTP only for now)
     # Certbot will modify this to redirect to HTTPS and add SSL server block
@@ -297,6 +306,11 @@ if [ "$RUN_CERTBOT" = "y" ] || [ "$RUN_CERTBOT" = "Y" ]; then
         print_status "✅ SSL certificate obtained successfully"
         # Reload nginx after certbot
         sudo systemctl reload nginx
+        # Ensure certbot auto-renewal timer is enabled
+        print_status "Enabling certbot auto-renewal timer..."
+        sudo systemctl enable certbot.timer
+        sudo systemctl start certbot.timer
+        print_status "✅ Certbot auto-renewal enabled (runs twice daily)"
     else
         print_error "❌ Certbot failed!"
         print_error "   Common issues:"
